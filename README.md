@@ -28,5 +28,5 @@ Then run the following
 ```bash
 pip install torch==2.6.0 torchvision torchaudio torch_geometric
 pip install pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.6.0+cpu.html   
-pip install pytorch-frame sentence_transformers relbench
+pip install pytorch-frame sentence_transformers relbench wandb
 ```

@@ -1,3 +1,5 @@
+import wandb
+
 from src.config import CustomConfig
 from src.dataloader import RelBenchDataLoader 
 from src.models.hetero_gin import HeteroGraphGIN
@@ -44,6 +46,19 @@ if __name__ == "__main__":
         temporal_strategy=config.temporal_strategy
     )
 
+    wandb.init(
+        project="Graph Learning",
+        config={
+            "learning_rate": config.learning_rate,
+            "epochs": config.epochs,
+            "batch_size": config.batch_size,
+            "model": "GraphTransformer",
+            "dataset": config.data_name,
+            "task_name": config.task_name,
+            "task_type": data_loader.task.task_type,
+            }
+    )
+
     if data_loader.task.task_type == TaskType.BINARY_CLASSIFICATION:
         loss_fn = BCEWithLogitsLoss()
         config.tune_metric = "roc_auc"
@@ -84,13 +99,11 @@ if __name__ == "__main__":
     # Initialize optimizer and loss function
     optimizer = Adam(model.parameters(), lr=config.learning_rate)
 
-
     best_metrics, best_model = train(
         model=model,
         loaders=data_loader.loader_dict,
         optimizer=optimizer,
         loss_fn=loss_fn,
         task=data_loader.task,
-        config=config
+        config=config,
     )
-
