@@ -70,7 +70,7 @@ if __name__ == "__main__":
             "learning_rate": config.learning_rate,
             "epochs": config.epochs,
             "batch_size": config.batch_size,
-            "model": 'Global MP Transformer' if args.model == 'global' else 'Local MP Transformer' if args.model == 'local' else 'Arbitrary Model',
+            "model": 'Global MP Transformer' if args.model == 'global' else 'FraudGT' if args.model == 'local' else 'Arbitrary Model',
             "dataset": config.data_name,
             "task_name": config.task_name,
             "task_type": data_loader.task.task_type,
@@ -97,39 +97,40 @@ if __name__ == "__main__":
     elif args.model == 'local':
         # Gocal MP transformer (FraudGT)
         pass
+    else:
+        model = HeteroGraphSage(
+            data=data_loader.graph,
+            col_stats_dict=data_loader.col_stats_dict,
+            channels=config.channels,
+            out_channels=config.out_channels,
+            num_layers=config.num_layers,
+            aggr=config.aggr,
+            norm=config.norm,
+            torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
+        ).to(config.device)
 
-    # model = HeteroGraphGIN(
-    #     data=data_loader.graph,
-    #     col_stats_dict=data_loader.col_stats_dict,
-    #     channels=config.channels,
-    #     out_channels=config.out_channels,
-    #     num_layers=config.num_layers,
-    #     aggr=config.aggr,
-    #     norm=config.norm,
-    #     torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
-    # ).to(config.device)
+        logging.info(f"Model: {model}")
 
-    model = HeteroGraphSage(
-        data=data_loader.graph,
-        col_stats_dict=data_loader.col_stats_dict,
-        channels=config.channels,
-        out_channels=config.out_channels,
-        num_layers=config.num_layers,
-        aggr=config.aggr,
-        norm=config.norm,
-        torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
-    ).to(config.device)
+        # Initialize optimizer and loss function
+        optimizer = Adam(model.parameters(), lr=config.learning_rate)
 
-    logging.info(f"Model: {model}")
+        best_metrics, best_model = train(
+            model=model,
+            loaders=data_loader.loader_dict,
+            optimizer=optimizer,
+            loss_fn=loss_fn,
+            task=data_loader.task,
+            config=config,
+        )
 
-    # Initialize optimizer and loss function
-    optimizer = Adam(model.parameters(), lr=config.learning_rate)
+        # model = HeteroGraphGIN(
+        #     data=data_loader.graph,
+        #     col_stats_dict=data_loader.col_stats_dict,
+        #     channels=config.channels,
+        #     out_channels=config.out_channels,
+        #     num_layers=config.num_layers,
+        #     aggr=config.aggr,
+        #     norm=config.norm,
+        #     torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
+        # ).to(config.device)
 
-    best_metrics, best_model = train(
-        model=model,
-        loaders=data_loader.loader_dict,
-        optimizer=optimizer,
-        loss_fn=loss_fn,
-        task=data_loader.task,
-        config=config,
-    )
