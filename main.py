@@ -32,6 +32,9 @@ if __name__ == "__main__":
     parser.add_argument("--num_layers", type=int, default=2, help="Number of layers")
     parser.add_argument("--num_neighbors", type=int, nargs='*', default=[128, 128], help="Number of neighbors")
     parser.add_argument("--temporal_strategy", type=str, default="uniform", help="Temporal strategy")
+    parser.add_argument("--rev_mp", type=bool, default=True, help="Use Reverse Message Passing")
+    parser.add_argument("--port_numbering", type=bool, default=True, help="Add Port Numbering")
+    parser.add_argument("--ego_ids", type=bool, default=True, help="Use Ego IDs")
 
     args = parser.parse_args()
 
@@ -48,6 +51,9 @@ if __name__ == "__main__":
         num_layers = args.num_layers,
         num_neighbors = args.num_neighbors,
         temporal_strategy = args.temporal_strategy,
+        reverse_mp = args.rev_mp,
+        port_numbering = args.port_numbering,
+        ego_ids = args.ego_ids,
     )
 
     config.print_config()
@@ -61,7 +67,9 @@ if __name__ == "__main__":
         batch_size=config.batch_size,
         num_neighbors=config.num_neighbors,
         num_workers=2,
-        temporal_strategy=config.temporal_strategy
+        temporal_strategy=config.temporal_strategy,
+        reverse_mp=config.reverse_mp,
+        add_ports=config.port_numbering,
     )
 
     wandb.init(

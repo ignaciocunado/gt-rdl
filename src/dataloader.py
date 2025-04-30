@@ -1,6 +1,9 @@
 import os
+
+import numpy as np
 import torch
 from typing import Dict, List, Optional, Any, Tuple
+
 from torch_geometric.loader import NeighborLoader
 from torch_frame.config.text_embedder import TextEmbedderConfig
 from sentence_transformers import SentenceTransformer
@@ -52,6 +55,9 @@ class RelBenchDataLoader:
         batch_size (int, optional): Batch size for dataloaders. Defaults to 128
         num_neighbors (List[int], optional): Number of neighbors to sample. Defaults to [32, 32]
         num_workers (int, optional): Number of worker processes. Defaults to 0
+        temporal_strategy (str, optional): Strategy for temporal neighbor sampling. Defaults to "uniform"
+        reverse_mp (bool, optional): Whether to use reverse message passing. Defaults to False
+        add_ports (bool, optional): Whether to use port numbering. Defaults to False
     """
     def __init__(
         self,
@@ -63,6 +69,8 @@ class RelBenchDataLoader:
         num_neighbors: List[int] = [32, 32],
         num_workers: int = 0,
         temporal_strategy: str = "uniform",
+        reverse_mp: bool = False,
+        add_ports: bool = False,
     ):
         self.data_name = data_name
         self.task_name = task_name
@@ -73,6 +81,9 @@ class RelBenchDataLoader:
         self.num_workers = num_workers
         self.entity_table = None
         self.temporal_strategy = temporal_strategy
+        self.reverse_mp = reverse_mp
+        self.add_ports = add_ports
+
         # Load dataset and task
         self.dataset = self._load_dataset()
         self.task = self._load_task()
@@ -160,6 +171,15 @@ class RelBenchDataLoader:
                 text_embedder_cfg=self.text_embedder_cfg,
                 cache_dir=os.path.join(self.root_dir, f"rel-{self.data_name}", f"rel-{self.data_name}_materialized_cache"),
             )
+
+            if not self.reverse_mp: # Reverse MP is implemented by default in RelBench but we can remove it
+                for source, rel, destination in graph.edge_types:
+                    if 'rev' in rel:
+                        del graph[source, rel, destination]
+
+            if self.add_ports:
+                graph = self._compute_and_add_ports(graph)
+
         return graph, col_stats_dict
     
     def _create_loaders(self) -> Dict[str, NeighborLoader]:
@@ -202,3 +222,90 @@ class RelBenchDataLoader:
             NeighborLoader: The requested data loader
         """
         return self.loader_dict[split]
+
+    def _compute_and_add_ports(self, graph):
+        """
+        Implements port numbering for the graph
+        Args:
+            graph:
+
+        Returns:
+
+        """
+        for edge_type in graph.edge_types:
+            adj_list_in, adj_list_out = to_adj_simple(graph, edge_type)
+            ei = graph[edge_type].edge_index
+
+            in_ports = ports(ei, adj_list_in)
+            out_ports = ports(ei.flipud(), adj_list_out)
+            graph = self.__add_ports_to_edge_features(graph, edge_type, (in_ports, out_ports))
+
+        return graph
+
+    def __add_ports_to_edge_features(self, graph, edge_type, ports):
+        if hasattr(graph[edge_type], 'edge_attr') and graph[edge_type].edge_attr is not None:
+            base_feat = graph[edge_type].edge_attr
+        else:
+            base_feat = torch.zeros((graph[edge_type].num_edges, 0), dtype=torch.long, device=self.device)
+
+        in_ports, out_ports = ports
+
+        if not self.reverse_mp:
+            new_feat = torch.cat([base_feat, in_ports, out_ports], dim=1)
+        else:
+            source, rel, destination = edge_type
+            if 'rev' in rel:
+                new_feat = torch.cat([base_feat, out_ports], dim=1)
+            else:
+                new_feat = torch.cat([base_feat, in_ports],  dim=1)
+
+        graph[edge_type].edge_attr = new_feat
+
+        return graph
+
+def to_adj_simple(graph, edge_type):
+    """
+    Build adjacency lists
+    Returns two dicts:
+      adj_in[v]  = [u1, u2, ...] for edges (u->v)
+      adj_out[u] = [v1, v2, ...] for edges (u->v)
+    """
+    src_type, _, dst_type = edge_type
+    num_nodes_src = graph[src_type].num_nodes
+    num_nodes_dst = graph[dst_type].num_nodes
+    ei = graph[edge_type].edge_index            # [2, E_rel]
+
+    adj_in  = {i: [] for i in range(num_nodes_dst)}
+    adj_out = {i: [] for i in range(num_nodes_src)}
+
+    for u, v in ei.t().tolist():
+        adj_out[u].append(v)
+        adj_in [v].append(u)
+
+    return adj_in, adj_out
+
+
+def ports(edge_index, adj_list):
+    """
+    For each edge (u->v), assign a port ID based on sorting all unique
+    neighbours u of v in ascending order.
+    Args:
+        edge_index: edge index
+        adj_list: adjacency list
+
+    Returns:
+
+    """
+    E = edge_index.size(1)
+    ports = torch.zeros((E,1), dtype=torch.long)
+    ports_dict = {}
+
+    for v, nbs in adj_list.items():
+        unique_nbs = sorted(set(nbs))
+        for rank, u in enumerate(unique_nbs):
+            ports_dict[(u, v)] = rank
+
+    for idx, (u, v) in enumerate(edge_index.t().tolist()):
+        ports[idx] = ports_dict[(u, v)]
+
+    return ports
