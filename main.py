@@ -75,14 +75,8 @@ if __name__ == "__main__":
     wandb.init(
         project="Graph Learning",
         config={
-            "learning_rate": config.learning_rate,
-            "epochs": config.epochs,
-            "batch_size": config.batch_size,
             "model": 'Global MP Transformer' if args.model == 'global' else 'FraudGT' if args.model == 'local' else 'Arbitrary Model',
-            "dataset": config.data_name,
-            "task_name": config.task_name,
-            "task_type": data_loader.task.task_type,
-            }
+        } | config.__dict__
     )
 
     if data_loader.task.task_type == TaskType.BINARY_CLASSIFICATION:
