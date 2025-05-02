@@ -70,6 +70,7 @@ if __name__ == "__main__":
         temporal_strategy=config.temporal_strategy,
         reverse_mp=config.reverse_mp,
         add_ports=config.port_numbering,
+        ego_ids=config.ego_ids,
     )
 
     wandb.init(

@@ -1,9 +1,12 @@
+import json
 import os
 
 import numpy as np
 import torch
 from typing import Dict, List, Optional, Any, Tuple
 
+from torch_frame.data import StatType
+from torch_frame._stype import stype
 from torch_geometric.loader import NeighborLoader
 from torch_frame.config.text_embedder import TextEmbedderConfig
 from sentence_transformers import SentenceTransformer
@@ -58,6 +61,7 @@ class RelBenchDataLoader:
         temporal_strategy (str, optional): Strategy for temporal neighbor sampling. Defaults to "uniform"
         reverse_mp (bool, optional): Whether to use reverse message passing. Defaults to False
         add_ports (bool, optional): Whether to use port numbering. Defaults to False
+        ego_ids (bool, optional): Whether to add IDs to the centre nodes of the batch. Defaults to False
     """
     def __init__(
         self,
@@ -71,6 +75,7 @@ class RelBenchDataLoader:
         temporal_strategy: str = "uniform",
         reverse_mp: bool = False,
         add_ports: bool = False,
+        ego_ids: bool = False,
     ):
         self.data_name = data_name
         self.task_name = task_name
@@ -83,6 +88,7 @@ class RelBenchDataLoader:
         self.temporal_strategy = temporal_strategy
         self.reverse_mp = reverse_mp
         self.add_ports = add_ports
+        self.ego_ids = ego_ids
 
         # Load dataset and task
         self.dataset = self._load_dataset()
@@ -179,6 +185,64 @@ class RelBenchDataLoader:
 
             if self.add_ports:
                 graph = self._compute_and_add_ports(graph)
+
+            if self.ego_ids:
+                for ntype in graph.node_types:
+                    N = graph[ntype].num_nodes
+                    ego_id = torch.arange(N, dtype=torch.long)
+
+                    orig = graph[ntype].tf.feat_dict.get(
+                        stype.numerical,
+                        torch.empty((N, 0), dtype=torch.float)
+                    )
+                    graph[ntype].tf.feat_dict[stype.numerical] = torch.cat(
+                        [orig, ego_id.unsqueeze(1).float()],
+                        dim=1
+                    )
+                    names = graph[ntype].tf.col_names_dict.setdefault(stype.numerical, [])
+                    names.append('ego_id')
+
+                    vals =ego_id.numpy()
+
+                    # compute the same stats PyG uses:
+                    mean = float(vals.mean())
+                    std  = float(vals.std(ddof=0))       # population std
+                    quantiles = list(np.quantile(vals, [0.0, 0.25, 0.5, 0.75, 1.0]).tolist())
+
+                    # insert under the same ntype → column → { StatType: value } hierarchy
+                    col_stats_dict.setdefault(ntype, {})['ego_id'] = {
+                        StatType.MEAN:      mean,
+                        StatType.STD:       std,
+                        StatType.QUANTILES: quantiles,
+                    }
+
+                # for ntype in graph.node_types:
+                #     num_nodes = graph[ntype].num_nodes
+                #
+                #     ids = torch.zeros((num_nodes, 1),
+                #                       dtype=torch.float,
+                #                       device=self.device)
+                #
+                #     ego_idx = self.ego_ids[ntype] if isinstance(self.ego_ids, dict) else self.ego_ids
+                #
+                #     if isinstance(ego_idx, torch.BoolTensor) or type(ego_idx) == torch.bool:
+                #         ids[ego_idx.view(-1), 0] = 1.
+                #     else:
+                #         ids[ego_idx, 0] = 1.
+                #
+                #     if hasattr(graph[ntype], 'x') and graph[ntype].x is not None:
+                #         graph[ntype].x = torch.cat([graph[ntype].x, ids], dim=-1)
+                #     else:
+                #         graph[ntype].x = ids
+
+                # x = data['node'].x
+                # device = x.device
+                # ids = torch.zeros((x.shape[0], 1), device=device)
+                # nodes = torch.arange(data['node'].batch_size, device=device)
+                # ids[nodes] = 1
+                # data['node'].x = torch.cat([x, ids], dim=1)
+                #
+                # return data
 
         return graph, col_stats_dict
     
