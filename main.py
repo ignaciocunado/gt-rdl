@@ -1,6 +1,8 @@
 import argparse
 
 import wandb
+import os
+os.environ['XDG_CACHE_HOME'] = '/tudelft.net/staff-umbrella/CSE3000GLTD/ignacio/data'
 
 from src.config import CustomConfig
 from src.dataloader import RelBenchDataLoader 
