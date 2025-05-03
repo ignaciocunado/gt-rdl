@@ -4,6 +4,8 @@ import wandb
 import os
 os.environ['XDG_CACHE_HOME'] = '/tudelft.net/staff-umbrella/CSE3000GLTD/ignacio/data'
 
+from src.models.fraudgt import FraudGT
+
 from src.config import CustomConfig
 from src.dataloader import RelBenchDataLoader 
 from src.models.hetero_gin import HeteroGraphGIN
@@ -12,8 +14,6 @@ from src.models.hetero_sage import HeteroGraphSage
 from src.train import train
 from src.utils import analyze_multi_edges
 
-import torch
-import torch.nn.functional as F
 from torch.optim import Adam
 from torch.nn import L1Loss, BCELoss, BCEWithLogitsLoss
 import logging
@@ -100,8 +100,13 @@ if __name__ == "__main__":
         # Global MP transformer
         pass
     elif args.model == 'local':
-        # Gocal MP transformer (FraudGT)
-        pass
+        model = FraudGT(
+            data=data_loader.graph,
+            col_stats_dict=data_loader.col_stats_dict,
+            channels=config.channels,
+            out_channels=config.out_channels,
+            num_layers=config.num_layers,
+        )
     else:
         model = HeteroGraphSage(
             data=data_loader.graph,
