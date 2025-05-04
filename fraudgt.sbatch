@@ -18,7 +18,5 @@ module use /opt/insy/modulefiles
 module load cuda/11.8
 
 # Run script
-srun apptainer exec --nv --env-file ~/.env -B $HOME:$HOME -B /tudelft.net/:/tudelft.net/ $APPTAINER_IMAGE python main.py --model local --dataset f1 --task driver-top3 --eval_freq 4 --batch_size 2048 --num_neighbors 50 50
-
-
+srun apptainer exec --nv --env-file ~/.env -B $HOME:$HOME -B /tudelft.net/:/tudelft.net/ $APPTAINER_IMAGE python main.py --model local --dataset f1 --task driver-top3 --eval_freq 4 --batch_size 2048 --channels 64 --num_neighbors 50 50 --rev_mp
 

@@ -8,7 +8,6 @@ import torch.nn.functional as F
 from torch_geometric.data import HeteroData
 from torch_geometric.nn.inits import zeros
 from torch_geometric.typing import NodeType
-from torch_geometric.utils import mask_to_index
 from torch_scatter import scatter_max
 
 from src.models.base_model import BaseModel
@@ -33,8 +32,8 @@ class FraudGT(BaseModel):
         )
 
         self.num_layers = num_layers
-        self.metadata = data[0].metadata()
-        self.dim_h = 64
+        self.metadata = data.metadata()
+        self.dim_h = channels
         self.input_drop = nn.Dropout(0.0)
         self.activation = nn.GELU
         self.batch_norm = False
@@ -90,13 +89,13 @@ class FraudGT(BaseModel):
                      seed_time: Tensor):
         # batch = self.encoder(batch) # Already encoded
 
-        h_dict, edge_index_dict = batch.collect('x'), batch.edge_index_dict
-
-        h_dict = {
-            node_type: self.input_drop(h_dict[node_type]) for node_type in h_dict
+        # h_dict, edge_index_dict = batch.collect('x'), batch.edge_index_dict
+        #
+        x_dict = {
+            node_type: self.input_drop(x_dict[node_type]) for node_type in x_dict
         }
 
-        # if self.layers_pre_gt > 0: TODO: If needed
+        # if self.layers_pre_gt > 0: TODO: Code if we add layers pre gt
         #     h_dict = {
         #         node_type: self.pre_gt_dict[node_type](h_dict[node_type]) for node_type in h_dict
         #     }
@@ -106,7 +105,7 @@ class FraudGT(BaseModel):
         #     batch[node_type].x = h_dict[node_type]
 
         for i in range(self.num_layers):
-            x_dict = self.convs[i](x_dict, batch.edge_index_dict)
+            x_dict = self.convs[i](batch, x_dict, batch.edge_index_dict)
 
         return self.post_gt(x_dict[entity_table][: seed_time.size(0)])
 
@@ -127,7 +126,7 @@ class FraudGTLayer(nn.Module):
         self.num_heads = num_heads
         self.layer_norm = layer_norm
         self.batch_norm = batch_norm
-        self.activation = nn.GELU
+        self.activation = nn.GELU()
         self.metadata = metadata
         self.return_attention = return_attention
         self.local_gnn_type = local_gnn_type
@@ -196,6 +195,7 @@ class FraudGTLayer(nn.Module):
             if self.batch_norm:
                 self.norm1_edge_local[edge_type] = nn.BatchNorm1d(dim_h)
                 self.norm1_edge_global[edge_type] = nn.BatchNorm1d(dim_h)
+
         # TODO: DROPOUTS
         self.dropout_local = nn.Dropout(0.0) # Lower dropout as graph size increases - 0.0 for large graphs, 0.2 for small
         self.dropout_global = nn.Dropout(0.2) # Lower dropout as graph size increases - 0.0 for large graphs, 0.2 for small
@@ -230,11 +230,11 @@ class FraudGTLayer(nn.Module):
         zeros(self.attn_bi)
 
 
-    def forward(self, batch, x_dict, edge_index_dict: Dict[NodeType, Tensor]):
+    def forward(self, batch, x_dict, edge_index: Dict[NodeType, Tensor]):
         has_edge_attr = False
         h_dict = x_dict.copy()
 
-        if sum(batch.num_edge_features.values()):
+        if sum(batch.num_edge_features.values()) > len(batch.edge_types): # TODO: Check if we add edge features
             edge_attr_dict = batch.collect('edge_attr')
             has_edge_attr = True
 
@@ -244,6 +244,7 @@ class FraudGTLayer(nn.Module):
 
         h_out_dict_list = {node_type: [] for node_type in h_dict}
 
+        # Pre-normalization
         if self.layer_norm or self.batch_norm:
             h_dict = {
                 node_type: self.norm1_global[node_type](h_dict[node_type])
@@ -258,31 +259,33 @@ class FraudGTLayer(nn.Module):
 
             h_attn_dict_list = {node_type: [] for node_type in h_dict}
 
+            # We need to modify attention the attention mechanism for heterogeneous graphs
             # Test if Signed attention is beneficial
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             H, D = self.num_heads, self.dim_h // self.num_heads
             homo_data = batch.to_homogeneous()
             edge_index = homo_data.edge_index
             node_type_tensor = homo_data.node_type
             edge_type_tensor = homo_data.edge_type
-            q = torch.empty((homo_data.num_nodes, self.dim_h), device=homo_data.x.device)
-            k = torch.empty((homo_data.num_nodes, self.dim_h), device=homo_data.x.device)
-            v = torch.empty((homo_data.num_nodes, self.dim_h), device=homo_data.x.device)
-            edge_attr = torch.empty((homo_data.num_edges, self.dim_h), device=homo_data.x.device)
-            edge_gate = torch.empty((homo_data.num_edges, self.dim_h), device=homo_data.x.device)
+            q = torch.empty((homo_data.num_nodes, self.dim_h), device=device)
+            k = torch.empty((homo_data.num_nodes, self.dim_h), device=device)
+            v = torch.empty((homo_data.num_nodes, self.dim_h), device=device)
+            edge_attr = torch.empty((homo_data.num_edges, self.dim_h), device=device)
+            edge_gate = torch.empty((homo_data.num_edges, self.dim_h), device=device)
             for idx, node_type in enumerate(batch.node_types):
                 mask = node_type_tensor == idx
                 q[mask] = self.q_lin[node_type](h_dict[node_type])
                 k[mask] = self.k_lin[node_type](h_dict[node_type])
                 v[mask] = self.v_lin[node_type](h_dict[node_type])
-            for idx, edge_type_tuple in enumerate(batch.edge_types):
-                edge_type = '__'.join(edge_type_tuple)
-                mask = edge_type_tensor == idx
-                edge_attr[mask] = self.e_lin[edge_type](edge_attr_dict[edge_type_tuple])
-                edge_gate[mask] = self.g_lin[edge_type](edge_attr_dict[edge_type_tuple])
+            # for idx, edge_type_tuple in enumerate(batch.edge_types): TODO: Adapt if edge features
+            #     edge_type = '__'.join(edge_type_tuple)
+            #     mask = edge_type_tensor == idx
+            #     edge_attr[mask] = self.e_lin[edge_type](edge_attr_dict[edge_type_tuple])
+            #     edge_gate[mask] = self.g_lin[edge_type](edge_attr_dict[edge_type_tuple])
             src_nodes, dst_nodes = edge_index
             num_edges = edge_index.shape[1]
-            L = homo_data.x.shape[0]
-            S = homo_data.x.shape[0]
+            L = batch.num_nodes
+            S = batch.num_nodes
 
             if has_edge_attr:
                 edge_attr = edge_attr.view(-1, H, D)
@@ -300,8 +303,7 @@ class FraudGTLayer(nn.Module):
             k = k.transpose(0,1)
             v = v.transpose(0,1)
 
-            src_nodes, dst_nodes = edge_index
-            num_edges = edge_index.shape[1]
+            src_nodes, dst_nodes = homo_data.edge_index
             # Compute query and key for each edge
             edge_q = q[:, dst_nodes, :]  # Queries for destination nodes # num_heads * num_edges * d_k
             edge_k = k[:, src_nodes, :]  # Keys for source nodes
@@ -334,7 +336,7 @@ class FraudGTLayer(nn.Module):
 
                 # Step 3: Exponentiate scores and sum
                 exp_scores = torch.exp(edge_scores - max_scores)
-                sum_exp_scores = torch.zeros((H, L), device=edge_scores.device)
+                sum_exp_scores = torch.zeros((H, L), device=device)
                 sum_exp_scores.scatter_add_(1, expanded_dst_nodes, exp_scores)
                 # sum_exp_scores.clamp_(min=1e-9)
 
@@ -343,7 +345,7 @@ class FraudGTLayer(nn.Module):
                 edge_scores = edge_scores.unsqueeze(-1)
                 edge_scores = self.dropout_attn(edge_scores)
 
-                out = torch.zeros((H, L, D), device=q.device)
+                out = torch.zeros((H, L, D), device=device)
                 out.scatter_add_(1, dst_nodes.unsqueeze(-1).expand((H, num_edges, D)), edge_scores * edge_v)
 
             else:
@@ -413,13 +415,13 @@ class FraudGTLayer(nn.Module):
             }
 
 
-        for node_type in batch.node_types:
-            batch[node_type].x = h_dict[node_type]
-        if has_edge_attr:
-            for edge_type in batch.edge_types:
-                batch[edge_type].edge_attr = edge_attr_dict[edge_type]
+        # for node_type in batch.node_types:
+        #     batch[node_type].x = h_dict[node_type]
+        # if has_edge_attr:
+        #     for edge_type in batch.edge_types:
+        #         batch[edge_type].edge_attr = edge_attr_dict[edge_type]
 
-        return batch
+        return h_dict
 
     def _ff_block_type(self, x, node_type):
         """Feed Forward block.
@@ -475,9 +477,8 @@ class HeteroGNNNodeHead(nn.Module):
     Head of Hetero GNN, node prediction
     Auto-adaptive to both homogeneous and heterogeneous data.
     """
-    def __init__(self, dim_in, dim_out, dataset):
-        super(HeteroGNNNodeHead).__init__()
-        self.is_hetero = isinstance(dataset[0], HeteroData)
+    def __init__(self, dim_in, dim_out):
+        super(HeteroGNNNodeHead, self).__init__()
 
         self.layer_post_mp = MLP(dim_in, dim_out, num_layers=2, bias=True)
 
@@ -576,7 +577,7 @@ class GeneralLayer(nn.Module):
         if gnn_dropout > 0:
             layer_wrapper.append(nn.Dropout(p=gnn_dropout))
         if has_act:
-            layer_wrapper.append(nn.ReLU)
+            layer_wrapper.append(nn.ReLU())
         self.post_layer = nn.Sequential(*layer_wrapper)
 
     def forward(self, batch):

@@ -34,9 +34,9 @@ if __name__ == "__main__":
     parser.add_argument("--num_layers", type=int, default=2, help="Number of layers")
     parser.add_argument("--num_neighbors", type=int, nargs='*', default=[128, 128], help="Number of neighbors")
     parser.add_argument("--temporal_strategy", type=str, default="uniform", help="Temporal strategy")
-    parser.add_argument("--rev_mp", type=bool, default=True, help="Use Reverse Message Passing")
-    parser.add_argument("--port_numbering", type=bool, default=True, help="Add Port Numbering")
-    parser.add_argument("--ego_ids", type=bool, default=True, help="Use Ego IDs")
+    parser.add_argument("--rev_mp", action='store_true', help="Use Reverse Message Passing")
+    parser.add_argument("--port_numbering", action='store_true', help="Add Port Numbering")
+    parser.add_argument("--ego_ids", action='store_true', help="Use Ego IDs")
 
     args = parser.parse_args()
 
@@ -106,7 +106,8 @@ if __name__ == "__main__":
             channels=config.channels,
             out_channels=config.out_channels,
             num_layers=config.num_layers,
-        )
+            torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
+        ).to(config.device)
     else:
         model = HeteroGraphSage(
             data=data_loader.graph,
@@ -119,19 +120,19 @@ if __name__ == "__main__":
             torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
         ).to(config.device)
 
-        logging.info(f"Model: {model}")
+    logging.info(f"Model: {model}")
 
-        # Initialize optimizer and loss function
-        optimizer = Adam(model.parameters(), lr=config.learning_rate)
+    # Initialize optimizer and loss function
+    optimizer = Adam(model.parameters(), lr=config.learning_rate)
 
-        best_metrics, best_model = train(
-            model=model,
-            loaders=data_loader.loader_dict,
-            optimizer=optimizer,
-            loss_fn=loss_fn,
-            task=data_loader.task,
-            config=config,
-        )
+    best_metrics, best_model = train(
+        model=model,
+        loaders=data_loader.loader_dict,
+        optimizer=optimizer,
+        loss_fn=loss_fn,
+        task=data_loader.task,
+        config=config,
+    )
 
         # model = HeteroGraphGIN(
         #     data=data_loader.graph,
