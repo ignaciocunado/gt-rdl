@@ -315,7 +315,7 @@ class RelBenchDataLoader:
         in_ports, out_ports = ports
 
         if not self.reverse_mp:
-            new_feat = torch.cat([base_feat, in_ports, out_ports], dim=1)
+            new_feat = torch.cat([base_feat, in_ports, out_ports], dim=1).to(self.device)
         else:
             source, rel, destination = edge_type
             if 'rev' in rel:
@@ -361,7 +361,7 @@ def ports(edge_index, adj_list):
 
     """
     E = edge_index.size(1)
-    ports = torch.zeros((E,1), dtype=torch.long)
+    ports = torch.zeros((E,1), dtype=torch.long, device=torch.device("cuda" if torch.cuda.is_available() else "cpu"))
     ports_dict = {}
 
     for v, nbs in adj_list.items():
