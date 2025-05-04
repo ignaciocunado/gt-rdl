@@ -69,6 +69,8 @@ class CustomConfig:
     temporal_strategy: str = "uniform"
     aggr: str = "sum"
     norm: str = "batch_norm"
+    reverse_mp: bool = True
+    port_numbering: bool = True
     
     # Training Configuration
     learning_rate: float = 0.005
@@ -77,6 +79,7 @@ class CustomConfig:
     batch_size: int = 128
     num_workers: int = 2
     device: torch.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    ego_ids: bool = True
     
     # Model Selection
     higher_is_better: bool = True
@@ -140,6 +143,8 @@ class CustomConfig:
         config_str += f"Output Channels: {self.out_channels}\n"
         config_str += f"Aggregation: {self.aggr}\n"
         config_str += f"Normalization: {self.norm}\n"
+        config_str += f"Reverse Message Passing: {self.reverse_mp}\n"
+        config_str += f"Port Numbering: {self.port_numbering}\n"
         
         # Training Configuration
         config_str += "\nTraining Configuration:\n"
@@ -148,6 +153,7 @@ class CustomConfig:
         config_str += f"Batch Size: {self.batch_size}\n"
         config_str += f"Number of Workers: {self.num_workers}\n"
         config_str += f"Device: {self.device}\n"
+        config_str += f"Ego IDs: {self.ego_ids}\n"
         
         # Model Selection
         config_str += "\nModel Selection:\n"

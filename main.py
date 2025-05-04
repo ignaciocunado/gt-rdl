@@ -1,6 +1,10 @@
 import argparse
 
 import wandb
+import os
+os.environ['XDG_CACHE_HOME'] = '/tudelft.net/staff-umbrella/CSE3000GLTD/ignacio/data'
+
+from src.models.fraudgt import FraudGT
 
 from src.config import CustomConfig
 from src.dataloader import RelBenchDataLoader 
@@ -10,8 +14,6 @@ from src.models.hetero_sage import HeteroGraphSage
 from src.train import train
 from src.utils import analyze_multi_edges
 
-import torch
-import torch.nn.functional as F
 from torch.optim import Adam
 from torch.nn import L1Loss, BCELoss, BCEWithLogitsLoss
 import logging
@@ -32,6 +34,9 @@ if __name__ == "__main__":
     parser.add_argument("--num_layers", type=int, default=2, help="Number of layers")
     parser.add_argument("--num_neighbors", type=int, nargs='*', default=[128, 128], help="Number of neighbors")
     parser.add_argument("--temporal_strategy", type=str, default="uniform", help="Temporal strategy")
+    parser.add_argument("--rev_mp", action='store_true', help="Use Reverse Message Passing")
+    parser.add_argument("--port_numbering", action='store_true', help="Add Port Numbering")
+    parser.add_argument("--ego_ids", action='store_true', help="Use Ego IDs")
 
     args = parser.parse_args()
 
@@ -48,6 +53,9 @@ if __name__ == "__main__":
         num_layers = args.num_layers,
         num_neighbors = args.num_neighbors,
         temporal_strategy = args.temporal_strategy,
+        reverse_mp = args.rev_mp,
+        port_numbering = args.port_numbering,
+        ego_ids = args.ego_ids,
     )
 
     config.print_config()
@@ -61,20 +69,17 @@ if __name__ == "__main__":
         batch_size=config.batch_size,
         num_neighbors=config.num_neighbors,
         num_workers=2,
-        temporal_strategy=config.temporal_strategy
+        temporal_strategy=config.temporal_strategy,
+        reverse_mp=config.reverse_mp,
+        add_ports=config.port_numbering,
+        ego_ids=config.ego_ids,
     )
 
     wandb.init(
         project="Graph Learning",
         config={
-            "learning_rate": config.learning_rate,
-            "epochs": config.epochs,
-            "batch_size": config.batch_size,
-            "model": 'Global MP Transformer' if args.model == 'global' else 'Local MP Transformer' if args.model == 'local' else 'Arbitrary Model',
-            "dataset": config.data_name,
-            "task_name": config.task_name,
-            "task_type": data_loader.task.task_type,
-            }
+            "model": 'Global MP Transformer' if args.model == 'global' else 'FraudGT' if args.model == 'local' else 'Arbitrary Model',
+        } | config.__dict__
     )
 
     if data_loader.task.task_type == TaskType.BINARY_CLASSIFICATION:
@@ -95,30 +100,25 @@ if __name__ == "__main__":
         # Global MP transformer
         pass
     elif args.model == 'local':
-        # Gocal MP transformer (FraudGT)
-        pass
-
-    # model = HeteroGraphGIN(
-    #     data=data_loader.graph,
-    #     col_stats_dict=data_loader.col_stats_dict,
-    #     channels=config.channels,
-    #     out_channels=config.out_channels,
-    #     num_layers=config.num_layers,
-    #     aggr=config.aggr,
-    #     norm=config.norm,
-    #     torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
-    # ).to(config.device)
-
-    model = HeteroGraphSage(
-        data=data_loader.graph,
-        col_stats_dict=data_loader.col_stats_dict,
-        channels=config.channels,
-        out_channels=config.out_channels,
-        num_layers=config.num_layers,
-        aggr=config.aggr,
-        norm=config.norm,
-        torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
-    ).to(config.device)
+        model = FraudGT(
+            data=data_loader.graph,
+            col_stats_dict=data_loader.col_stats_dict,
+            channels=config.channels,
+            out_channels=config.out_channels,
+            num_layers=config.num_layers,
+            torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
+        ).to(config.device)
+    else:
+        model = HeteroGraphSage(
+            data=data_loader.graph,
+            col_stats_dict=data_loader.col_stats_dict,
+            channels=config.channels,
+            out_channels=config.out_channels,
+            num_layers=config.num_layers,
+            aggr=config.aggr,
+            norm=config.norm,
+            torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
+        ).to(config.device)
 
     logging.info(f"Model: {model}")
 
@@ -133,3 +133,15 @@ if __name__ == "__main__":
         task=data_loader.task,
         config=config,
     )
+
+        # model = HeteroGraphGIN(
+        #     data=data_loader.graph,
+        #     col_stats_dict=data_loader.col_stats_dict,
+        #     channels=config.channels,
+        #     out_channels=config.out_channels,
+        #     num_layers=config.num_layers,
+        #     aggr=config.aggr,
+        #     norm=config.norm,
+        #     torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
+        # ).to(config.device)
+
