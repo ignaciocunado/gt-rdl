@@ -164,24 +164,25 @@ def train(
                 state_dict = copy.deepcopy(model.state_dict())
                 best_metrics = val_metrics
                 no_improve_count = 0
-            
-                # Save checkpoint in the run-specific checkpoint directory
-                # Create a unique filename with metric value
-                metric_value = f"{current_metric:.4f}".replace(".", "-")
-                checkpoint_filename = f"epoch_{epoch:03d}_{config.tune_metric}_{metric_value}.pt"
-                checkpoint_path = os.path.join(config.checkpoint_dir, checkpoint_filename)
+
                 
                 # Save the model with comprehensive metadata
-                torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': state_dict,
-                    'optimizer_state_dict': optimizer.state_dict(),
-                }, checkpoint_path)
-                artifact = wandb.Artifact('model_checkpoint', type='model')
-                artifact.add_file(checkpoint_path)
-                wandb.log_artifact(artifact)
+                if config.save_artifacts:
+                    # Save checkpoint in the run-specific checkpoint directory
+                    # Create a unique filename with metric value
+                    metric_value = f"{current_metric:.4f}".replace(".", "-")
+                    checkpoint_filename = f"epoch_{epoch:03d}_{config.tune_metric}_{metric_value}.pt"
+                    checkpoint_path = os.path.join(config.checkpoint_dir, checkpoint_filename)
 
-                logging.info(f"Saved model checkpoint to {checkpoint_path}")
+                    torch.save({
+                        'epoch': epoch,
+                        'model_state_dict': state_dict,
+                        'optimizer_state_dict': optimizer.state_dict(),
+                    }, checkpoint_path)
+                    artifact = wandb.Artifact('model_checkpoint', type='model')
+                    artifact.add_file(checkpoint_path)
+                    wandb.log_artifact(artifact)
+                    logging.info(f"Saved model checkpoint to {checkpoint_path}")
 
             else:
                 no_improve_count += 1

@@ -1,0 +1,109 @@
+method: bayes
+metric:
+  goal: minimize
+  name: val_metrics.mae
+parameters:
+  aggr:
+    distribution: categorical
+    values:
+      - sum
+  head:
+    distribution: categorical
+    values:
+      - HeteroGNNNodeHead
+  batch_size:
+    distribution: categorical
+    values:
+      - 32
+      - 64
+      - 128
+      - 256
+      - 512
+      - 1024
+      - 2048
+      - 5096
+  channels:
+    distribution: categorical
+    values:
+      - 32
+      - 64
+      - 128
+      - 256
+  early_stopping:
+    distribution: categorical
+    values:
+      - true
+      - false
+  ego_ids:
+    distribution: categorical
+    values:
+      - false
+  epochs:
+    distribution: int_uniform
+    max: 40
+    min: 10
+  evaluation_freq:
+    distribution: int_uniform
+    max: 4
+    min: 1
+  learning_rate:
+    distribution: uniform
+    max: 0.01
+    min: 0.0005
+  max_steps_per_epoch:
+    distribution: int_uniform
+    max: 4000
+    min: 1000
+  norm:
+    distribution: categorical
+    values:
+      - batch_norm
+  num_layers:
+    distribution: int_uniform
+    max: 4
+    min: 1
+  num_layers_pre_gt:
+    distribution: int_uniform
+    max: 2
+    min: 0
+  patience:
+    distribution: int_uniform
+    max: 10
+    min: 3
+  num_neighbors:
+    distribution: int_uniform
+    max: 200
+    min: 25
+  port_numbering:
+    distribution: categorical
+    values:
+      - true
+      - false
+  reverse_mp:
+    distribution: categorical
+    values:
+      - true
+      - false
+  local_dropout:
+    distribution: uniform
+    min: 0.0
+    max: 0.5
+  global_dropout:
+    distribution: uniform
+    min: 0.0
+    max: 0.5
+  attention_dropout:
+    distribution: uniform
+    min: 0.0
+    max: 0.5
+  optimiser:
+    distribution: categorical
+    values:
+      - adam
+      - adamW
+  edge_features:
+    distribution: categorical
+    values:
+      - true
+      - false
+program: sweep.py
