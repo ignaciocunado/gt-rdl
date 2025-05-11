@@ -40,20 +40,37 @@ parameters:
       - false
   epochs:
     distribution: int_uniform
-    max: 40
+    max: 20
     min: 10
   evaluation_freq:
     distribution: int_uniform
-    max: 4
+    max: 2
     min: 1
   learning_rate:
-    distribution: uniform
-    max: 0.01
-    min: 0.0005
+    distribution: categorical
+    values:
+      - 0.001
+      - 0.002
+      - 0.003
+      - 0.004
+      - 0.005
+      - 0.007
+      - 0.008
+      - 0.01
+      - 0.02
+      - 0.03
+      - 0.04
+      - 0.05
   max_steps_per_epoch:
-    distribution: int_uniform
-    max: 4000
-    min: 1000
+    distribution: categorical
+    values:
+      - 1000
+      - 1500
+      - 2000
+      - 2500
+      - 3000
+      - 3500
+      - 4000
   norm:
     distribution: categorical
     values:
@@ -77,8 +94,7 @@ parameters:
   port_numbering:
     distribution: categorical
     values:
-      - true
-      - false
+      - false # Does not work as of now
   reverse_mp:
     distribution: categorical
     values:
