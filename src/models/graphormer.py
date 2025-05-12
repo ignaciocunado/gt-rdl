@@ -2,15 +2,17 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, Callable, Optional, List, Tuple
 
 import math
+import numpy as np
 import torch
-from torch import Tensor, nn
+import torch.nn as nn
 import torch.nn.functional as F
+from torch import Tensor
 from torch.nn import LayerNorm
 from torch_geometric.data import HeteroData
 from torch_geometric.typing import NodeType
 
-from src.utils import quant_noise, graphormer_softmax, safe_hasattr
 from src.models.base_model import BaseModel
+from src.utils import quant_noise, graphormer_softmax, safe_hasattr
 
 
 class Graphormer(BaseModel):
@@ -31,7 +33,6 @@ class Graphormer(BaseModel):
             torch_frame_model_kwargs=torch_frame_model_kwargs,
         )
         pass
-
 
     def post_forward(self, x_dict: Dict[str, Tensor], batch: HeteroData, entity_table: NodeType, seed_time: Tensor):
         pass
@@ -60,9 +61,118 @@ def init_graphormer_params(module):
         normal_(module.k_proj.weight.data)
         normal_(module.v_proj.weight.data)
 
-class GraphormerGraphEncoder(nn.Module):
+
+def base_architecture(args):
+    args.dropout = getattr(args, "dropout", 0.1)
+    args.attention_dropout = getattr(args, "attention_dropout", 0.1)
+    args.act_dropout = getattr(args, "act_dropout", 0.0)
+
+    args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 4096)
+    args.encoder_layers = getattr(args, "encoder_layers", 6)
+    args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 8)
+
+    args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 1024)
+    args.share_encoder_input_output_embed = getattr(
+        args, "share_encoder_input_output_embed", False
+    )
+    args.no_token_positional_embeddings = getattr(
+        args, "no_token_positional_embeddings", False
+    )
+
+    args.apply_graphormer_init = getattr(args, "apply_graphormer_init", False)
+
+    args.activation_fn = getattr(args, "activation_fn", "gelu")
+    args.encoder_normalize_before = getattr(args, "encoder_normalize_before", True)
+
+def graphormer_base_architecture(args):
+    if args.pretrained_model_name == "pcqm4mv1_graphormer_base" or \
+            args.pretrained_model_name == "pcqm4mv2_graphormer_base" or \
+            args.pretrained_model_name == "pcqm4mv1_graphormer_base_for_molhiv":
+        args.encoder_layers = 12
+        args.encoder_attention_heads = 32
+        args.encoder_ffn_embed_dim = 768
+        args.encoder_embed_dim = 768
+        args.dropout = getattr(args, "dropout", 0.0)
+        args.attention_dropout = getattr(args, "attention_dropout", 0.1)
+        args.act_dropout = getattr(args, "act_dropout", 0.1)
+    else:
+        args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 768)
+        args.encoder_layers = getattr(args, "encoder_layers", 12)
+        args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 32)
+        args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 768)
+        args.dropout = getattr(args, "dropout", 0.0)
+        args.attention_dropout = getattr(args, "attention_dropout", 0.1)
+        args.act_dropout = getattr(args, "act_dropout", 0.1)
+
+    args.activation_fn = getattr(args, "activation_fn", "gelu")
+    args.encoder_normalize_before = getattr(args, "encoder_normalize_before", True)
+    args.apply_graphormer_init = getattr(args, "apply_graphormer_init", True)
+    args.share_encoder_input_output_embed = getattr(
+        args, "share_encoder_input_output_embed", False
+    )
+    args.no_token_positional_embeddings = getattr(
+        args, "no_token_positional_embeddings", False
+    )
+    args.pre_layernorm = getattr(args, "pre_layernorm", False)
+    base_architecture(args)
+
+
+def graphormer_slim_architecture(args):
+    args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 80)
+
+    args.encoder_layers = getattr(args, "encoder_layers", 12)
+
+    args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 8)
+    args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 80)
+
+    args.activation_fn = getattr(args, "activation_fn", "gelu")
+    args.encoder_normalize_before = getattr(args, "encoder_normalize_before", True)
+    args.apply_graphormer_init = getattr(args, "apply_graphormer_init", True)
+    args.share_encoder_input_output_embed = getattr(
+        args, "share_encoder_input_output_embed", False
+    )
+    args.no_token_positional_embeddings = getattr(
+        args, "no_token_positional_embeddings", False
+    )
+    args.pre_layernorm = getattr(args, "pre_layernorm", False)
+    base_architecture(args)
+
+
+def graphormer_large_architecture(args):
+    args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 1024)
+
+    args.encoder_layers = getattr(args, "encoder_layers", 24)
+
+    args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 32)
+    args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 1024)
+
+    args.activation_fn = getattr(args, "activation_fn", "gelu")
+    args.encoder_normalize_before = getattr(args, "encoder_normalize_before", True)
+    args.apply_graphormer_init = getattr(args, "apply_graphormer_init", True)
+    args.share_encoder_input_output_embed = getattr(
+        args, "share_encoder_input_output_embed", False
+    )
+    args.no_token_positional_embeddings = getattr(
+        args, "no_token_positional_embeddings", False
+    )
+    args.pre_layernorm = getattr(args, "pre_layernorm", False)
+    base_architecture(args)
+
+
+def init_params(module, n_layers):
+    if isinstance(module, nn.Linear):
+        module.weight.data.normal_(mean=0.0, std=0.02 / math.sqrt(n_layers))
+        if module.bias is not None:
+            module.bias.data.zero_()
+    if isinstance(module, nn.Embedding):
+        module.weight.data.normal_(mean=0.0, std=0.02)
+
+
+class GraphormerModel(nn.Module):
     def __init__(
             self,
+            # graph‐structure params
+            max_nodes: int,
             num_atoms: int,
             num_in_degree: int,
             num_out_degree: int,
@@ -71,341 +181,76 @@ class GraphormerGraphEncoder(nn.Module):
             num_edge_dis: int,
             edge_type: str,
             multi_hop_max_dist: int,
-            num_encoder_layers: int = 12,
-            embedding_dim: int = 768,
-            ffn_embedding_dim: int = 768,
-            num_attention_heads: int = 32,
+            num_classes: int,
+            # embeddings
+            encoder_embed_dim: int = 1024,
+            share_encoder_input_output_embed: bool = False,
+            encoder_learned_pos: bool = False,
+            no_token_positional_embeddings: bool = False,
+            max_positions: int = 512,
+            # transformer
+            encoder_ffn_embed_dim: int = 4096,
+            encoder_layers: int = 6,
+            encoder_attention_heads: int = 8,
+            # dropouts
             dropout: float = 0.1,
             attention_dropout: float = 0.1,
-            activation_dropout: float = 0.1,
-            layerdrop: float = 0.0,
-            encoder_normalize_before: bool = False,
-            pre_layernorm: bool = False,
+            act_dropout: float = 0.0,
+            # init & misc
             apply_graphormer_init: bool = False,
             activation_fn: str = "gelu",
-            embed_scale: float = None,
-            freeze_embeddings: bool = False,
-            n_trans_layers_to_freeze: int = 0,
-            export: bool = False,
-            traceable: bool = False,
-            q_noise: float = 0.0,
-            qn_block_size: int = 8,
-    ) -> None:
-
+            encoder_normalize_before: bool = True,
+            pre_layernorm: bool = False,
+    ):
         super().__init__()
-        self.dropout_module = FairseqDropout(
-            dropout, module_name=self.__class__.__name__
-        )
-        self.layerdrop = layerdrop
-        self.embedding_dim = embedding_dim
-        self.apply_graphormer_init = apply_graphormer_init
-        self.traceable = traceable
+        # store for downstream use (e.g. positional encoding, etc.)
+        self.encoder_embed_dim = encoder_embed_dim
+        self.share_encoder_input_output_embed = share_encoder_input_output_embed
+        self.encoder_learned_pos = encoder_learned_pos
+        self.no_token_positional_embeddings = no_token_positional_embeddings
+        self.max_positions = max_positions
 
-        self.graph_node_feature = GraphNodeFeature(
-            num_heads=num_attention_heads,
+        self.encoder_ffn_embed_dim = encoder_ffn_embed_dim
+        self.encoder_layers = encoder_layers
+        self.encoder_attention_heads = encoder_attention_heads
+
+        self.dropout = dropout
+        self.attention_dropout = attention_dropout
+        self.act_dropout = act_dropout
+
+        self.activation_fn = activation_fn
+        self.encoder_normalize_before = encoder_normalize_before
+        self.pre_layernorm = pre_layernorm
+
+        # build the encoder, passing everything explicitly
+        self.encoder = GraphormerEncoder(
+            max_nodes=max_nodes,
             num_atoms=num_atoms,
             num_in_degree=num_in_degree,
             num_out_degree=num_out_degree,
-            hidden_dim=embedding_dim,
-            n_layers=num_encoder_layers,
-        )
-
-        self.graph_attn_bias = GraphAttnBias(
-            num_heads=num_attention_heads,
-            num_atoms=num_atoms,
             num_edges=num_edges,
             num_spatial=num_spatial,
             num_edge_dis=num_edge_dis,
             edge_type=edge_type,
             multi_hop_max_dist=multi_hop_max_dist,
-            hidden_dim=embedding_dim,
-            n_layers=num_encoder_layers,
-        )
-
-        self.embed_scale = embed_scale
-
-        if q_noise > 0:
-            self.quant_noise = quant_noise(
-                nn.Linear(self.embedding_dim, self.embedding_dim, bias=False),
-                q_noise,
-                qn_block_size,
-            )
-        else:
-            self.quant_noise = None
-
-        if encoder_normalize_before:
-            self.emb_layer_norm = LayerNorm(self.embedding_dim, export=export)
-        else:
-            self.emb_layer_norm = None
-
-        if pre_layernorm:
-            self.final_layer_norm = LayerNorm(self.embedding_dim, export=export)
-
-        if self.layerdrop > 0.0:
-            self.layers = LayerDropModuleList(p=self.layerdrop)
-        else:
-            self.layers = nn.ModuleList([])
-        self.layers.extend(
-            [
-                self.build_graphormer_graph_encoder_layer(
-                    embedding_dim=self.embedding_dim,
-                    ffn_embedding_dim=ffn_embedding_dim,
-                    num_attention_heads=num_attention_heads,
-                    dropout=self.dropout_module.p,
-                    attention_dropout=attention_dropout,
-                    activation_dropout=activation_dropout,
-                    activation_fn=activation_fn,
-                    export=export,
-                    q_noise=q_noise,
-                    qn_block_size=qn_block_size,
-                    pre_layernorm=pre_layernorm,
-                )
-                for _ in range(num_encoder_layers)
-            ]
-        )
-
-        # Apply initialization of model params after building the model
-        if self.apply_graphormer_init:
-            self.apply(init_graphormer_params)
-
-        def freeze_module_params(m):
-            if m is not None:
-                for p in m.parameters():
-                    p.requires_grad = False
-
-        for layer in range(n_trans_layers_to_freeze):
-            freeze_module_params(self.layers[layer])
-
-    def build_graphormer_graph_encoder_layer(
-            self,
-            embedding_dim,
-            ffn_embedding_dim,
-            num_attention_heads,
-            dropout,
-            attention_dropout,
-            activation_dropout,
-            activation_fn,
-            export,
-            q_noise,
-            qn_block_size,
-            pre_layernorm,
-    ):
-        return GraphormerGraphEncoderLayer(
-            embedding_dim=embedding_dim,
-            ffn_embedding_dim=ffn_embedding_dim,
-            num_attention_heads=num_attention_heads,
+            num_encoder_layers=encoder_layers,
+            embedding_dim=encoder_embed_dim,
+            ffn_embedding_dim=encoder_ffn_embed_dim,
+            num_attention_heads=encoder_attention_heads,
             dropout=dropout,
             attention_dropout=attention_dropout,
-            activation_dropout=activation_dropout,
-            activation_fn=activation_fn,
-            export=export,
-            q_noise=q_noise,
-            qn_block_size=qn_block_size,
+            activation_dropout=act_dropout,
+            encoder_normalize_before=encoder_normalize_before,
             pre_layernorm=pre_layernorm,
+            apply_graphormer_init=apply_graphormer_init,
+            activation_fn=activation_fn,
+            share_input_output_embed=share_encoder_input_output_embed,
+            remove_head=False,
+            num_classes=num_classes,
         )
 
-    def forward(
-            self,
-            batched_data,
-            perturb=None,
-            last_state_only: bool = False,
-            token_embeddings: Optional[torch.Tensor] = None,
-            attn_mask: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        is_tpu = False
-        # compute padding mask. This is needed for multi-head attention
-        data_x = batched_data["x"]
-        n_graph, n_node = data_x.size()[:2]
-        padding_mask = (data_x[:, :, 0]).eq(0)  # B x T x 1
-        padding_mask_cls = torch.zeros(
-            n_graph, 1, device=padding_mask.device, dtype=padding_mask.dtype
-        )
-        padding_mask = torch.cat((padding_mask_cls, padding_mask), dim=1)
-        # B x (T+1) x 1
-
-        if token_embeddings is not None:
-            x = token_embeddings
-        else:
-            x = self.graph_node_feature(batched_data)
-
-        if perturb is not None:
-            #ic(torch.mean(torch.abs(x[:, 1, :])))
-            #ic(torch.mean(torch.abs(perturb)))
-            x[:, 1:, :] += perturb
-
-        # x: B x T x C
-
-        attn_bias = self.graph_attn_bias(batched_data)
-
-        if self.embed_scale is not None:
-            x = x * self.embed_scale
-
-        if self.quant_noise is not None:
-            x = self.quant_noise(x)
-
-        if self.emb_layer_norm is not None:
-            x = self.emb_layer_norm(x)
-
-        x = self.dropout_module(x)
-
-        # account for padding while computing the representation
-
-        # B x T x C -> T x B x C
-        x = x.transpose(0, 1)
-
-        inner_states = []
-        if not last_state_only:
-            inner_states.append(x)
-
-        for layer in self.layers:
-            x, _ = layer(
-                x,
-                self_attn_padding_mask=padding_mask,
-                self_attn_mask=attn_mask,
-                self_attn_bias=attn_bias,
-            )
-            if not last_state_only:
-                inner_states.append(x)
-
-        graph_rep = x[0, :, :]
-
-        if last_state_only:
-            inner_states = [x]
-
-        if self.traceable:
-            return torch.stack(inner_states), graph_rep
-        else:
-            return inner_states, graph_rep
-
-class LayerDropModuleList(nn.ModuleList):
-    """
-    A LayerDrop implementation based on :class:`torch.nn.ModuleList`.
-
-    We refresh the choice of which layers to drop every time we iterate
-    over the LayerDropModuleList instance. During evaluation we always
-    iterate over all layers.
-
-    Usage::
-
-        layers = LayerDropList(p=0.5, modules=[layer1, layer2, layer3])
-        for layer in layers:  # this might iterate over layers 1 and 3
-            x = layer(x)
-        for layer in layers:  # this might iterate over all layers
-            x = layer(x)
-        for layer in layers:  # this might not iterate over any layers
-            x = layer(x)
-
-    Args:
-        p (float): probability of dropping out each layer
-        modules (iterable, optional): an iterable of modules to add
-    """
-
-    def __init__(self, p, modules=None):
-        super().__init__(modules)
-        self.p = p
-
-    def __iter__(self):
-        dropout_probs = torch.empty(len(self)).uniform_()
-        for i, m in enumerate(super().__iter__()):
-            if not self.training or (dropout_probs[i] > self.p):
-                yield m
-
-class GraphormerModel(nn.Module):
-    def __init__(self, args, encoder):
-        super().__init__()
-        self.args = args
-        self.encoder = encoder
-
-        if getattr(args, "apply_graphormer_init", False):
+        if apply_graphormer_init:
             self.apply(init_graphormer_params)
-        self.encoder_embed_dim = args.encoder_embed_dim
-
-    @staticmethod
-    def add_args(parser):
-        """Add model-specific arguments to the parser."""
-        # Arguments related to dropout
-        parser.add_argument(
-            "--dropout", type=float, metavar="D", help="dropout probability"
-        )
-        parser.add_argument(
-            "--attention-dropout",
-            type=float,
-            metavar="D",
-            help="dropout probability for" " attention weights",
-        )
-        parser.add_argument(
-            "--act-dropout",
-            type=float,
-            metavar="D",
-            help="dropout probability after" " activation in FFN",
-        )
-
-        # Arguments related to hidden states and self-attention
-        parser.add_argument(
-            "--encoder-ffn-embed-dim",
-            type=int,
-            metavar="N",
-            help="encoder embedding dimension for FFN",
-        )
-        parser.add_argument(
-            "--encoder-layers", type=int, metavar="N", help="num encoder layers"
-        )
-        parser.add_argument(
-            "--encoder-attention-heads",
-            type=int,
-            metavar="N",
-            help="num encoder attention heads",
-        )
-
-        # Arguments related to input and output embeddings
-        parser.add_argument(
-            "--encoder-embed-dim",
-            type=int,
-            metavar="N",
-            help="encoder embedding dimension",
-        )
-        parser.add_argument(
-            "--share-encoder-input-output-embed",
-            action="store_true",
-            help="share encoder input" " and output embeddings",
-        )
-        parser.add_argument(
-            "--encoder-learned-pos",
-            action="store_true",
-            help="use learned positional embeddings in the encoder",
-        )
-        parser.add_argument(
-            "--no-token-positional-embeddings",
-            action="store_true",
-            help="if set, disables positional embeddings" " (outside self attention)",
-        )
-        parser.add_argument(
-            "--max-positions", type=int, help="number of positional embeddings to learn"
-        )
-
-        # Arguments related to parameter initialization
-        parser.add_argument(
-            "--apply-graphormer-init",
-            action="store_true",
-            help="use custom param initialization for Graphormer",
-        )
-
-        # misc params
-        parser.add_argument(
-            "--activation-fn",
-            choices=utils.get_available_activation_fns(),
-            help="activation function to use",
-        )
-        parser.add_argument(
-            "--encoder-normalize-before",
-            action="store_true",
-            help="apply layernorm before each encoder block",
-        )
-        parser.add_argument(
-            "--pre-layernorm",
-            action="store_true",
-            help="apply layernorm before self-attention and ffn. Without this, post layernorm will used",
-        )
 
     def max_nodes(self):
         return self.encoder.max_nodes
@@ -419,67 +264,82 @@ class GraphormerModel(nn.Module):
         if not safe_hasattr(args, "max_nodes"):
             args.max_nodes = args.tokens_per_sample
 
-        encoder = GraphormerEncoder(args)
-        return cls(args, encoder)
-
     def forward(self, batched_data, **kwargs):
         return self.encoder(batched_data, **kwargs)
 
 
 class GraphormerEncoder(nn.Module):
-    def __init__(self, args):
+    def __init__(
+            self,
+            max_nodes: int,
+            num_atoms: int,
+            num_in_degree: int,
+            num_out_degree: int,
+            num_edges: int,
+            num_spatial: int,
+            num_edge_dis: int,
+            edge_type: str,
+            multi_hop_max_dist: int,
+            num_encoder_layers: int,
+            embedding_dim: int,
+            ffn_embedding_dim: int,
+            num_attention_heads: int,
+            dropout: float,
+            attention_dropout: float,
+            activation_dropout: float,
+            encoder_normalize_before: bool,
+            pre_layernorm: bool,
+            apply_graphormer_init: bool,
+            activation_fn: str,
+            # output head
+            share_input_output_embed: bool,
+            remove_head: bool,
+            num_classes: int,
+    ):
         super().__init__()
-        self.max_nodes = args.max_nodes
+        self.max_nodes = max_nodes
 
+        # core Graphormer graph encoder
         self.graph_encoder = GraphormerGraphEncoder(
-            # < for graphormer
-            num_atoms=args.num_atoms,
-            num_in_degree=args.num_in_degree,
-            num_out_degree=args.num_out_degree,
-            num_edges=args.num_edges,
-            num_spatial=args.num_spatial,
-            num_edge_dis=args.num_edge_dis,
-            edge_type=args.edge_type,
-            multi_hop_max_dist=args.multi_hop_max_dist,
-            # >
-            num_encoder_layers=args.encoder_layers,
-            embedding_dim=args.encoder_embed_dim,
-            ffn_embedding_dim=args.encoder_ffn_embed_dim,
-            num_attention_heads=args.encoder_attention_heads,
-            dropout=args.dropout,
-            attention_dropout=args.attention_dropout,
-            activation_dropout=args.act_dropout,
-            encoder_normalize_before=args.encoder_normalize_before,
-            pre_layernorm=args.pre_layernorm,
-            apply_graphormer_init=args.apply_graphormer_init,
-            activation_fn=args.activation_fn,
+            num_atoms=num_atoms,
+            num_in_degree=num_in_degree,
+            num_out_degree=num_out_degree,
+            num_edges=num_edges,
+            num_spatial=num_spatial,
+            num_edge_dis=num_edge_dis,
+            edge_type=edge_type,
+            multi_hop_max_dist=multi_hop_max_dist,
+            num_encoder_layers=num_encoder_layers,
+            embedding_dim=embedding_dim,
+            ffn_embedding_dim=ffn_embedding_dim,
+            num_attention_heads=num_attention_heads,
+            dropout=dropout,
+            attention_dropout=attention_dropout,
+            activation_dropout=activation_dropout,
+            encoder_normalize_before=encoder_normalize_before,
+            pre_layernorm=pre_layernorm,
+            apply_graphormer_init=apply_graphormer_init,
+            activation_fn=activation_fn,
         )
 
-        self.share_input_output_embed = args.share_encoder_input_output_embed
+        self.share_input_output_embed = share_input_output_embed
         self.embed_out = None
         self.lm_output_learned_bias = None
 
         # Remove head is set to true during fine-tuning
-        self.load_softmax = not getattr(args, "remove_head", False)
+        self.load_softmax = not remove_head
 
-        self.masked_lm_pooler = nn.Linear(
-            args.encoder_embed_dim, args.encoder_embed_dim
-        )
-
-        self.lm_head_transform_weight = nn.Linear(
-            args.encoder_embed_dim, args.encoder_embed_dim
-        )
-        self.activation_fn = utils.get_activation_fn(args.activation_fn)
-        self.layer_norm = LayerNorm(args.encoder_embed_dim)
+        self.masked_lm_pooler = nn.Linear(embedding_dim, embedding_dim)
+        self.lm_head_transform_weight = nn.Linear(embedding_dim, embedding_dim)
+        self.activation_fn = nn.GELU
+        self.layer_norm = LayerNorm(embedding_dim)
 
         self.lm_output_learned_bias = None
         if self.load_softmax:
             self.lm_output_learned_bias = nn.Parameter(torch.zeros(1))
 
             if not self.share_input_output_embed:
-                self.embed_out = nn.Linear(
-                    args.encoder_embed_dim, args.num_classes, bias=False
-                )
+                self.embed_out = nn.Linear(embedding_dim, num_classes, bias=False)
             else:
                 raise NotImplementedError
 
@@ -564,102 +424,189 @@ class GraphormerEncoder(nn.Module):
         return state_dict
 
 
-def base_architecture(args):
-    args.dropout = getattr(args, "dropout", 0.1)
-    args.attention_dropout = getattr(args, "attention_dropout", 0.1)
-    args.act_dropout = getattr(args, "act_dropout", 0.0)
+class GraphormerGraphEncoder(nn.Module):
+    def __init__(
+            self,
+            num_atoms: int,
+            num_in_degree: int,
+            num_out_degree: int,
+            num_edges: int,
+            num_spatial: int,
+            num_edge_dis: int,
+            edge_type: str,
+            multi_hop_max_dist: int,
+            num_encoder_layers: int = 12,
+            embedding_dim: int = 768,
+            ffn_embedding_dim: int = 768,
+            num_attention_heads: int = 32,
+            dropout: float = 0.1,
+            attention_dropout: float = 0.1,
+            activation_dropout: float = 0.1,
+            layerdrop: float = 0.0,
+            encoder_normalize_before: bool = False,
+            pre_layernorm: bool = False,
+            apply_graphormer_init: bool = False,
+            activation_fn: str = "gelu",
+            embed_scale: float = None,
+            n_trans_layers_to_freeze: int = 0,
+            export: bool = False,
+            traceable: bool = False,
+            q_noise: float = 0.0,
+            qn_block_size: int = 8,
+    ) -> None:
 
-    args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 4096)
-    args.encoder_layers = getattr(args, "encoder_layers", 6)
-    args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 8)
+        super().__init__()
+        self.dropout_module = Dropout(
+            dropout, module_name=self.__class__.__name__
+        )
+        self.layerdrop = layerdrop
+        self.embedding_dim = embedding_dim
+        self.apply_graphormer_init = apply_graphormer_init
+        self.traceable = traceable
 
-    args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 1024)
-    args.share_encoder_input_output_embed = getattr(
-        args, "share_encoder_input_output_embed", False
-    )
-    args.no_token_positional_embeddings = getattr(
-        args, "no_token_positional_embeddings", False
-    )
+        self.graph_node_feature = GraphNodeFeature(
+            num_heads=num_attention_heads,
+            num_atoms=num_atoms,
+            num_in_degree=num_in_degree,
+            num_out_degree=num_out_degree,
+            hidden_dim=embedding_dim,
+            n_layers=num_encoder_layers,
+        )
 
-    args.apply_graphormer_init = getattr(args, "apply_graphormer_init", False)
+        self.graph_attn_bias = GraphAttnBias(
+            num_heads=num_attention_heads,
+            num_edges=num_edges,
+            num_spatial=num_spatial,
+            num_edge_dis=num_edge_dis,
+            edge_type=edge_type,
+            multi_hop_max_dist=multi_hop_max_dist,
+            n_layers=num_encoder_layers,
+        )
 
-    args.activation_fn = getattr(args, "activation_fn", "gelu")
-    args.encoder_normalize_before = getattr(args, "encoder_normalize_before", True)
+        self.embed_scale = embed_scale
 
+        if q_noise > 0:
+            self.quant_noise = quant_noise(
+                nn.Linear(self.embedding_dim, self.embedding_dim, bias=False),
+                q_noise,
+                qn_block_size,
+            )
+        else:
+            self.quant_noise = None
 
-def graphormer_base_architecture(args):
-    if args.pretrained_model_name == "pcqm4mv1_graphormer_base" or \
-            args.pretrained_model_name == "pcqm4mv2_graphormer_base" or \
-            args.pretrained_model_name == "pcqm4mv1_graphormer_base_for_molhiv":
-        args.encoder_layers = 12
-        args.encoder_attention_heads = 32
-        args.encoder_ffn_embed_dim = 768
-        args.encoder_embed_dim = 768
-        args.dropout = getattr(args, "dropout", 0.0)
-        args.attention_dropout = getattr(args, "attention_dropout", 0.1)
-        args.act_dropout = getattr(args, "act_dropout", 0.1)
-    else:
-        args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 768)
-        args.encoder_layers = getattr(args, "encoder_layers", 12)
-        args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 32)
-        args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 768)
-        args.dropout = getattr(args, "dropout", 0.0)
-        args.attention_dropout = getattr(args, "attention_dropout", 0.1)
-        args.act_dropout = getattr(args, "act_dropout", 0.1)
+        if encoder_normalize_before:
+            self.emb_layer_norm = LayerNorm(self.embedding_dim, export=export)
+        else:
+            self.emb_layer_norm = None
 
-    args.activation_fn = getattr(args, "activation_fn", "gelu")
-    args.encoder_normalize_before = getattr(args, "encoder_normalize_before", True)
-    args.apply_graphormer_init = getattr(args, "apply_graphormer_init", True)
-    args.share_encoder_input_output_embed = getattr(
-        args, "share_encoder_input_output_embed", False
-    )
-    args.no_token_positional_embeddings = getattr(
-        args, "no_token_positional_embeddings", False
-    )
-    args.pre_layernorm = getattr(args, "pre_layernorm", False)
-    base_architecture(args)
+        if pre_layernorm:
+            self.final_layer_norm = LayerNorm(self.embedding_dim, export=export)
 
+        if self.layerdrop > 0.0:
+            self.layers = LayerDropModuleList(p=self.layerdrop)
+        else:
+            self.layers = nn.ModuleList([])
+        self.layers.extend(
+            [
+                GraphormerGraphEncoderLayer(
+                    embedding_dim=self.embedding_dim,
+                    ffn_embedding_dim=ffn_embedding_dim,
+                    num_attention_heads=num_attention_heads,
+                    dropout=self.dropout_module.p,
+                    attention_dropout=attention_dropout,
+                    activation_dropout=activation_dropout,
+                    activation_fn=activation_fn,
+                    export=export,
+                    q_noise=q_noise,
+                    qn_block_size=qn_block_size,
+                    pre_layernorm=pre_layernorm,
+                )
+                for _ in range(num_encoder_layers)
+            ]
+        )
 
-def graphormer_slim_architecture(args):
-    args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 80)
+        # Apply initialization of model params after building the model
+        if self.apply_graphormer_init:
+            self.apply(init_graphormer_params)
 
-    args.encoder_layers = getattr(args, "encoder_layers", 12)
+        def freeze_module_params(m):
+            if m is not None:
+                for p in m.parameters():
+                    p.requires_grad = False
 
-    args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 8)
-    args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 80)
+        for layer in range(n_trans_layers_to_freeze):
+            freeze_module_params(self.layers[layer])
 
-    args.activation_fn = getattr(args, "activation_fn", "gelu")
-    args.encoder_normalize_before = getattr(args, "encoder_normalize_before", True)
-    args.apply_graphormer_init = getattr(args, "apply_graphormer_init", True)
-    args.share_encoder_input_output_embed = getattr(
-        args, "share_encoder_input_output_embed", False
-    )
-    args.no_token_positional_embeddings = getattr(
-        args, "no_token_positional_embeddings", False
-    )
-    args.pre_layernorm = getattr(args, "pre_layernorm", False)
-    base_architecture(args)
+    def forward(
+            self,
+            batched_data,
+            perturb=None,
+            last_state_only: bool = False,
+            token_embeddings: Optional[torch.Tensor] = None,
+            attn_mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        # compute padding mask. This is needed for multi-head attention
+        data_x = batched_data["x"]
+        n_graph, n_node = data_x.size()[:2]
+        padding_mask = (data_x[:, :, 0]).eq(0)  # B x T x 1
+        padding_mask_cls = torch.zeros(
+            n_graph, 1, device=padding_mask.device, dtype=padding_mask.dtype
+        )
+        padding_mask = torch.cat((padding_mask_cls, padding_mask), dim=1)
+        # B x (T+1) x 1
 
+        if token_embeddings is not None:
+            x = token_embeddings
+        else:
+            x = self.graph_node_feature(batched_data)
 
-def graphormer_large_architecture(args):
-    args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 1024)
+        if perturb is not None:
+            # ic(torch.mean(torch.abs(perturb)))
+            x[:, 1:, :] += perturb
 
-    args.encoder_layers = getattr(args, "encoder_layers", 24)
+        # x: B x T x C
 
-    args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 32)
-    args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 1024)
+        attn_bias = self.graph_attn_bias(batched_data)
 
-    args.activation_fn = getattr(args, "activation_fn", "gelu")
-    args.encoder_normalize_before = getattr(args, "encoder_normalize_before", True)
-    args.apply_graphormer_init = getattr(args, "apply_graphormer_init", True)
-    args.share_encoder_input_output_embed = getattr(
-        args, "share_encoder_input_output_embed", False
-    )
-    args.no_token_positional_embeddings = getattr(
-        args, "no_token_positional_embeddings", False
-    )
-    args.pre_layernorm = getattr(args, "pre_layernorm", False)
-    base_architecture(args)
+        if self.embed_scale is not None:
+            x = x * self.embed_scale
+
+        if self.quant_noise is not None:
+            x = self.quant_noise(x)
+
+        if self.emb_layer_norm is not None:
+            x = self.emb_layer_norm(x)
+
+        x = self.dropout_module(x)
+
+        # account for padding while computing the representation
+
+        # B x T x C -> T x B x C
+        x = x.transpose(0, 1)
+
+        inner_states = []
+        if not last_state_only:
+            inner_states.append(x)
+
+        for layer in self.layers:
+            x, _ = layer(
+                x,
+                self_attn_padding_mask=padding_mask,
+                self_attn_mask=attn_mask,
+                self_attn_bias=attn_bias,
+            )
+            if not last_state_only:
+                inner_states.append(x)
+
+        graph_rep = x[0, :, :]
+
+        if last_state_only:
+            inner_states = [x]
+
+        if self.traceable:
+            return torch.stack(inner_states), graph_rep
+        else:
+            return inner_states, graph_rep
 
 
 class GraphormerGraphEncoderLayer(nn.Module):
@@ -690,17 +637,18 @@ class GraphormerGraphEncoderLayer(nn.Module):
         self.qn_block_size = qn_block_size
         self.pre_layernorm = pre_layernorm
 
-        self.dropout_module = FairseqDropout(
+        self.dropout_module = Dropout(
             dropout, module_name=self.__class__.__name__
         )
-        self.activation_dropout_module = FairseqDropout(
+        self.activation_dropout_module = Dropout(
             activation_dropout, module_name=self.__class__.__name__
         )
 
         # Initialize blocks
         self.activation_fn = torch.relu
-        self.self_attn = self.build_self_attention(
-            self.embedding_dim,
+
+        self.self_attn = MultiheadAttention(
+            self.embed_dim,
             num_attention_heads,
             dropout=attention_dropout,
             self_attention=True,
@@ -732,24 +680,6 @@ class GraphormerGraphEncoderLayer(nn.Module):
 
     def build_fc2(self, input_dim, output_dim, q_noise, qn_block_size):
         return quant_noise(nn.Linear(input_dim, output_dim), q_noise, qn_block_size)
-
-    def build_self_attention(
-            self,
-            embed_dim,
-            num_attention_heads,
-            dropout,
-            self_attention,
-            q_noise,
-            qn_block_size,
-    ):
-        return MultiheadAttention(
-            embed_dim,
-            num_attention_heads,
-            dropout=dropout,
-            self_attention=True,
-            q_noise=q_noise,
-            qn_block_size=qn_block_size,
-        )
 
     def forward(
             self,
@@ -793,13 +723,39 @@ class GraphormerGraphEncoderLayer(nn.Module):
         return x, attn
 
 
-def init_params(module, n_layers):
-    if isinstance(module, nn.Linear):
-        module.weight.data.normal_(mean=0.0, std=0.02 / math.sqrt(n_layers))
-        if module.bias is not None:
-            module.bias.data.zero_()
-    if isinstance(module, nn.Embedding):
-        module.weight.data.normal_(mean=0.0, std=0.02)
+class LayerDropModuleList(nn.ModuleList):
+    """
+    A LayerDrop implementation based on :class:`torch.nn.ModuleList`.
+
+    We refresh the choice of which layers to drop every time we iterate
+    over the LayerDropModuleList instance. During evaluation we always
+    iterate over all layers.
+
+    Usage::
+
+        layers = LayerDropList(p=0.5, modules=[layer1, layer2, layer3])
+        for layer in layers:  # this might iterate over layers 1 and 3
+            x = layer(x)
+        for layer in layers:  # this might iterate over all layers
+            x = layer(x)
+        for layer in layers:  # this might not iterate over any layers
+            x = layer(x)
+
+    Args:
+        p (float): probability of dropping out each layer
+        modules (iterable, optional): an iterable of modules to add
+    """
+
+    def __init__(self, p, modules=None):
+        super().__init__(modules)
+        self.p = p
+
+    def __iter__(self):
+        dropout_probs = torch.empty(len(self)).uniform_()
+        for i, m in enumerate(super().__iter__()):
+            if not self.training or (dropout_probs[i] > self.p):
+                yield m
+
 
 class GraphNodeFeature(nn.Module):
     """
@@ -855,11 +811,9 @@ class GraphAttnBias(nn.Module):
     def __init__(
             self,
             num_heads,
-            num_atoms,
             num_edges,
             num_spatial,
             num_edge_dis,
-            hidden_dim,
             edge_type,
             multi_hop_max_dist,
             n_layers,
@@ -970,7 +924,7 @@ class MultiheadAttention(nn.Module):
         self.qkv_same_dim = self.kdim == embed_dim and self.vdim == embed_dim
 
         self.num_heads = num_heads
-        self.dropout_module = FairseqDropout(
+        self.dropout_module = Dropout(
             dropout, module_name=self.__class__.__name__
         )
 
@@ -1162,8 +1116,8 @@ class MultiheadAttention(nn.Module):
                 # in_proj_weight used to be q + k + v with same dimensions
                 dim = int(state_dict[k].shape[0] / 3)
                 items_to_add[prefix + "q_proj.weight"] = state_dict[k][:dim]
-                items_to_add[prefix + "k_proj.weight"] = state_dict[k][dim : 2 * dim]
-                items_to_add[prefix + "v_proj.weight"] = state_dict[k][2 * dim :]
+                items_to_add[prefix + "k_proj.weight"] = state_dict[k][dim: 2 * dim]
+                items_to_add[prefix + "v_proj.weight"] = state_dict[k][2 * dim:]
 
                 keys_to_remove.append(k)
 
@@ -1172,9 +1126,9 @@ class MultiheadAttention(nn.Module):
                     dim = int(state_dict[k].shape[0] / 3)
                     items_to_add[prefix + "q_proj.bias"] = state_dict[k_bias][:dim]
                     items_to_add[prefix + "k_proj.bias"] = state_dict[k_bias][
-                                                           dim : 2 * dim
+                                                           dim: 2 * dim
                                                            ]
-                    items_to_add[prefix + "v_proj.bias"] = state_dict[k_bias][2 * dim :]
+                    items_to_add[prefix + "v_proj.bias"] = state_dict[k_bias][2 * dim:]
 
                     keys_to_remove.append(prefix + "in_proj_bias")
 
@@ -1185,7 +1139,7 @@ class MultiheadAttention(nn.Module):
             state_dict[key] = value
 
 
-class FairseqDropout(nn.Module):
+class Dropout(nn.Module):
     def __init__(self, p, module_name=None):
         super().__init__()
         self.p = p
@@ -1277,7 +1231,7 @@ class GraphPredictionConfig():
         metadata={"help": "edge type in the graph"},
     )
 
-    seed: int = II("common.seed")
+    seed: int = np.random.seed(0)
 
     pretrained_model_name: str = field(
         default="none",
