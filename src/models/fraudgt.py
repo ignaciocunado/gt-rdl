@@ -81,6 +81,8 @@ class FraudGT(BaseModel):
 
         if head == 'HeteroGNNNodeHead':
             self.post_gt = HeteroGNNNodeHead(dim_h_total, out_channels)
+        elif head == 'HeteroGNNNodeRegressionHead':
+            self.post_gt = HeteroGNNNodeRegressionHead(dim_h_total, out_channels)
         elif head == 'Linear':
             self.post_gt = Linear(dim_h_total, out_channels)
         else:
@@ -439,21 +441,33 @@ class HeteroGNNNodeHead(nn.Module):
     def __init__(self, dim_in, dim_out):
         super(HeteroGNNNodeHead, self).__init__()
 
-        self.layer_post_mp = MLP(dim_in, dim_out, num_layers=2, bias=True)
+        self.layer_post_mp = MLP(dim_in, dim_out, num_layers=2, bias=True, final_act=True)
 
+    def forward(self, batch):
+        return self.layer_post_mp(batch)
+
+class HeteroGNNNodeRegressionHead(nn.Module):
+    """
+    Head of Hetero GNN, node prediction
+    Auto-adaptive to both homogeneous and heterogeneous data.
+    """
+    def __init__(self, dim_in, dim_out):
+        super(HeteroGNNNodeRegressionHead, self).__init__()
+
+        self.layer_post_mp = MLP(dim_in, dim_out, num_layers=2, bias=True, final_act=False)
 
     def forward(self, batch):
         return self.layer_post_mp(batch)
 
 class MLP(nn.Module):
-    def __init__(self, dim_in, dim_out, bias=True, dim_inner=None, num_layers=2, **kwargs):
+    def __init__(self, dim_in, dim_out, bias=True, dim_inner=None, num_layers=2, final_act = False, **kwargs):
         '''
         Note: MLP works for 0 layers
         '''
         super(MLP, self).__init__()
         dim_inner = dim_in if dim_inner is None else dim_inner
         layers = []
-        layers.append(GeneralMultiLayer(num_layers - 1, dim_in, dim_inner, dim_inner, final_act=True))
+        layers.append(GeneralMultiLayer(num_layers - 1, dim_in, dim_inner, dim_inner, final_act=final_act))
         layers.append(Linear(dim_inner, dim_out, bias))
         self.model = nn.Sequential(*layers)
 
