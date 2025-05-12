@@ -81,6 +81,8 @@ class FraudGT(BaseModel):
 
         if head == 'HeteroGNNNodeHead':
             self.post_gt = HeteroGNNNodeHead(dim_h_total, out_channels)
+        elif head == 'Linear':
+            self.post_gt = Linear(dim_h_total, out_channels)
         else:
             raise ValueError(f'Attention head {head} not supported.')
 
