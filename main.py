@@ -42,6 +42,7 @@ if __name__ == "__main__":
     parser.add_argument("--edge_features", action='store_true', help="Concat node features into edge features")
     parser.add_argument("--dropouts", type=float, nargs='*', help="Local, global and attention dropout rates")
     parser.add_argument("--head", type=str, default="HeteroGNNNodeHead", help="Attention Head for the transformer")
+    parser.add_argument("--early_stopping", action='store_true', help="Use early stopping")
 
     args = parser.parse_args()
 
@@ -67,6 +68,7 @@ if __name__ == "__main__":
         head = args.head,
         edge_features = args.edge_features,
         save_artifacts=args.save_artifacts,
+        early_stopping=args.early_stopping,
     )
 
     config.print_config()
