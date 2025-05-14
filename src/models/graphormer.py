@@ -34,16 +34,16 @@ class Graphormer(BaseModel):
         )
 
         multi_hop_max_dist = 5
-        encoder_embed_dim = 80
-        encoder_attention_heads = 8
-        encoder_ffn_embed_dim = 80
+        embedding_dim = channels
+        num_attention_heads = 8
+        ffn_embedding_dim = 80
         encoder_normalize_before = True
         apply_graphormer_init = True
         share_encoder_input_output_embed = False
         pre_layernorm = False
         dropout = 0.1
         attention_dropout = 0.1
-        act_dropout = 0.0
+        activation_dropout = 0.0
 
         max_d = 0
         G = to_networkx(data, to_undirected=False)
@@ -54,94 +54,8 @@ class Graphormer(BaseModel):
         num_edge_dis = 128
         edge_type = 'edge_type' # or multi-hop
 
-        self.encoder = GraphormerEncoder(
-            num_in_degree=num_in_degree,
-            num_out_degree=num_out_degree,
-            num_edges=num_edges,
-            num_spatial=num_spatial,
-            num_edge_dis=num_edge_dis,
-            edge_type=edge_type,
-            multi_hop_max_dist=multi_hop_max_dist,
-            num_encoder_layers=num_layers,
-            embedding_dim=encoder_embed_dim,
-            ffn_embedding_dim=encoder_ffn_embed_dim,
-            num_attention_heads=encoder_attention_heads,
-            dropout=dropout,
-            attention_dropout=attention_dropout,
-            activation_dropout=act_dropout,
-            encoder_normalize_before=encoder_normalize_before,
-            pre_layernorm=pre_layernorm,
-            apply_graphormer_init=apply_graphormer_init,
-            share_input_output_embed=share_encoder_input_output_embed,
-            remove_head=False,
-            num_classes=out_channels,
-        )
-
-        if apply_graphormer_init:
-            self.apply(init_graphormer_params)
-
-    def post_forward(self, x_dict: Dict[str, Tensor], batch: HeteroData, entity_table: NodeType, seed_time: Tensor):
-        pass
-
-    # def forward(self, batched_data, **kwargs):
-    #     return self.encoder(batched_data, **kwargs)
-
-
-def init_graphormer_params(module):
-    """
-    Initialize the weights specific to the Graphormer Model.
-    """
-
-    def normal_(data):
-        # with FSDP, module params will be on CUDA, so we cast them back to CPU
-        # so that the RNG is consistent with and without FSDP
-        data.copy_(data.cpu().normal_(mean=0.0, std=0.02).to(data.device))
-
-    if isinstance(module, nn.Linear):
-        normal_(module.weight.data)
-        if module.bias is not None:
-            module.bias.data.zero_()
-    if isinstance(module, nn.Embedding):
-        normal_(module.weight.data)
-        if module.padding_idx is not None:
-            module.weight.data[module.padding_idx].zero_()
-    if isinstance(module, MultiheadAttention):
-        normal_(module.q_proj.weight.data)
-        normal_(module.k_proj.weight.data)
-        normal_(module.v_proj.weight.data)
-
-
-class GraphormerEncoder(nn.Module):
-    def __init__(
-            self,
-            max_nodes: int,
-            num_in_degree: int,
-            num_out_degree: int,
-            num_edges: int,
-            num_spatial: int,
-            num_edge_dis: int,
-            edge_type: str,
-            multi_hop_max_dist: int,
-            num_encoder_layers: int,
-            embedding_dim: int,
-            ffn_embedding_dim: int,
-            num_attention_heads: int,
-            dropout: float,
-            attention_dropout: float,
-            activation_dropout: float,
-            encoder_normalize_before: bool,
-            pre_layernorm: bool,
-            apply_graphormer_init: bool,
-            # output head
-            share_input_output_embed: bool,
-            remove_head: bool,
-            num_classes: int,
-    ):
-        super().__init__()
-        self.max_nodes = max_nodes
-
-        # core Graphormer graph encoder
         self.graph_encoder = GraphormerGraphEncoder(
+            # < for graphormer
             num_in_degree=num_in_degree,
             num_out_degree=num_out_degree,
             num_edges=num_edges,
@@ -149,7 +63,8 @@ class GraphormerEncoder(nn.Module):
             num_edge_dis=num_edge_dis,
             edge_type=edge_type,
             multi_hop_max_dist=multi_hop_max_dist,
-            num_encoder_layers=num_encoder_layers,
+            # >
+            num_encoder_layers=num_layers,
             embedding_dim=embedding_dim,
             ffn_embedding_dim=ffn_embedding_dim,
             num_attention_heads=num_attention_heads,
@@ -161,12 +76,14 @@ class GraphormerEncoder(nn.Module):
             apply_graphormer_init=apply_graphormer_init,
         )
 
-        self.share_input_output_embed = share_input_output_embed
+        if apply_graphormer_init:
+            self.apply(init_graphormer_params)
+
+        self.share_input_output_embed = share_encoder_input_output_embed
         self.embed_out = None
         self.lm_output_learned_bias = None
 
-        # Remove head is set to true during fine-tuning
-        self.load_softmax = not remove_head
+        self.load_softmax = True
 
         self.masked_lm_pooler = nn.Linear(embedding_dim, embedding_dim)
         self.lm_head_transform_weight = nn.Linear(embedding_dim, embedding_dim)
@@ -174,11 +91,12 @@ class GraphormerEncoder(nn.Module):
         self.layer_norm = LayerNorm(embedding_dim)
 
         self.lm_output_learned_bias = None
+
         if self.load_softmax:
             self.lm_output_learned_bias = nn.Parameter(torch.zeros(1))
 
             if not self.share_input_output_embed:
-                self.embed_out = nn.Linear(embedding_dim, num_classes, bias=False)
+                self.embed_out = nn.Linear(embedding_dim, out_channels, bias=False)
             else:
                 raise NotImplementedError
 
@@ -223,6 +141,34 @@ class GraphormerEncoder(nn.Module):
                 if "embed_out.weight" in k or "lm_output_learned_bias" in k:
                     del state_dict[k]
         return state_dict
+
+    def post_forward(self, x_dict: Dict[str, Tensor], batch: HeteroData, entity_table: NodeType, seed_time: Tensor):
+        pass
+
+
+def init_graphormer_params(module):
+    """
+    Initialize the weights specific to the Graphormer Model.
+    """
+
+    def normal_(data):
+        # with FSDP, module params will be on CUDA, so we cast them back to CPU
+        # so that the RNG is consistent with and without FSDP
+        data.copy_(data.cpu().normal_(mean=0.0, std=0.02).to(data.device))
+
+    if isinstance(module, nn.Linear):
+        normal_(module.weight.data)
+        if module.bias is not None:
+            module.bias.data.zero_()
+    if isinstance(module, nn.Embedding):
+        normal_(module.weight.data)
+        if module.padding_idx is not None:
+            module.weight.data[module.padding_idx].zero_()
+    if isinstance(module, MultiheadAttention):
+        normal_(module.q_proj.weight.data)
+        normal_(module.k_proj.weight.data)
+        normal_(module.v_proj.weight.data)
+
 
 class GraphormerGraphEncoder(nn.Module):
     def __init__(
