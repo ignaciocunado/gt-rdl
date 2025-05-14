@@ -5,26 +5,24 @@ import cython
 from cython.parallel cimport prange, parallel
 cimport numpy
 import numpy
-from libc.stdint cimport int64_t
+from libc.stdint cimport int16_t
 
 def floyd_warshall(adjacency_matrix):
+    cdef unsigned int n = adjacency_matrix.shape[0]
+    assert adjacency_matrix.shape[1] == n
 
-    (nrows, ncols) = adjacency_matrix.shape
-    assert nrows == ncols
-    cdef unsigned int n = nrows
-
-    adj_mat_copy = adjacency_matrix.astype(numpy.int64, order='C', casting='safe', copy=True)
-    assert adj_mat_copy.flags['C_CONTIGUOUS']
-    cdef numpy.ndarray[long, ndim=2, mode='c'] M = adj_mat_copy
-    cdef numpy.ndarray[long, ndim=2, mode='c'] path = -1 * numpy.ones([n, n], dtype=numpy.int64)
+    # Copy into a C-contiguous int16 array
+    cdef numpy.ndarray[numpy.int16_t, ndim=2, mode='c'] M = \
+        adjacency_matrix.astype(numpy.int16, order='C', casting='safe', copy=True)
+    cdef numpy.ndarray[numpy.int16_t, ndim=2, mode='c'] path = \
+        -1 * numpy.ones((n, n), dtype=numpy.int16)
 
     cdef unsigned int i, j, k
-    cdef long M_ij, M_ik, cost_ikkj
-    cdef long* M_ptr = &M[0,0]
-    cdef long* M_i_ptr
-    cdef long* M_k_ptr
+    cdef int16_t M_ij, M_ik, cost_ikkj
+    cdef int16_t* M_ptr = <int16_t*> &M[0, 0]
+    cdef int16_t* M_i_ptr
+    cdef int16_t* M_k_ptr
 
-    # set unreachable nodes distance to 510
     for i in range(n):
         for j in range(n):
             if i == j:
@@ -32,11 +30,11 @@ def floyd_warshall(adjacency_matrix):
             elif M[i][j] == 0:
                 M[i][j] = 510
 
-    # floyed algo
+    # Floyd–Warshall core
     for k in range(n):
-        M_k_ptr = M_ptr + n*k
+        M_k_ptr = M_ptr + n * k
         for i in range(n):
-            M_i_ptr = M_ptr + n*i
+            M_i_ptr = M_ptr + n * i
             M_ik = M_i_ptr[k]
             for j in range(n):
                 cost_ikkj = M_ik + M_k_ptr[j]
@@ -48,7 +46,7 @@ def floyd_warshall(adjacency_matrix):
     # set unreachable path to 510
     for i in range(n):
         for j in range(n):
-            if M[i][j] >= 510:
+            if M[i][j] >= 510 | M[i][j] <= -510:
                 path[i][j] = 510
                 M[i][j] = 510
 
