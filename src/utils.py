@@ -14,7 +14,7 @@ from collections import defaultdict
 
 import pyximport
 pyximport.install(setup_args={"include_dirs": np.get_include()})
-from .. import algos
+from . import algos
 
 
 def logger_setup(log_dir: str = "logs"):
@@ -201,36 +201,37 @@ def convert_to_single_emb(x, offset: int = 512):
     x = x + feature_offset
     return x
 
-def preprocess_item(item):
-    edge_attr, edge_index, x = item.edge_attr, item.edge_index, item.x
-    N = x.size(0)
-    x = convert_to_single_emb(x)
+def preprocess_item(item): #TODO: Figure out edge attributes if we add them
+    homo_data = item.to_homogeneous(add_node_type=True, add_edge_type=True)
+    edge_index = homo_data.edge_index
+    N = homo_data.node_type.size(0)
 
     # node adj matrix [N, N] bool
     adj = torch.zeros([N, N], dtype=torch.bool)
     adj[edge_index[0, :], edge_index[1, :]] = True
 
-    # edge feature here
-    if len(edge_attr.size()) == 1:
-        edge_attr = edge_attr[:, None]
-    attn_edge_type = torch.zeros([N, N, edge_attr.size(-1)], dtype=torch.long)
-    attn_edge_type[edge_index[0, :], edge_index[1, :]] = (
-            convert_to_single_emb(edge_attr) + 1
-    )
+    # # edge feature here
+    # if len(edge_attr.size()) == 1:
+    #     edge_attr = edge_attr[:, None]
+    # attn_edge_type = torch.zeros([N, N, edge_attr.size(-1)], dtype=torch.long)
+    # attn_edge_type[edge_index[0, :], edge_index[1, :]] = (
+    #         convert_to_single_emb(edge_attr) + 1
+    # )
 
+    logging.info("Computing shortest path...")
     shortest_path_result, path = algos.floyd_warshall(adj.numpy())
+    logging.info("Done!")
     max_dist = np.amax(shortest_path_result)
-    edge_input = algos.gen_edge_input(max_dist, path, attn_edge_type.numpy())
+    # edge_input = algos.gen_edge_input(max_dist, path, attn_edge_type.numpy())
     spatial_pos = torch.from_numpy((shortest_path_result)).long()
     attn_bias = torch.zeros([N + 1, N + 1], dtype=torch.float)  # with graph token
 
     # combine
-    item.x = x
     item.attn_bias = attn_bias
-    item.attn_edge_type = attn_edge_type
+    # item.attn_edge_type = attn_edge_type
     item.spatial_pos = spatial_pos
     item.in_degree = adj.long().sum(dim=1).view(-1)
     item.out_degree = item.in_degree  # for undirected graph
-    item.edge_input = torch.from_numpy(edge_input).long()
+    # item.edge_input = torch.from_numpy(edge_input).long()
 
     return item
