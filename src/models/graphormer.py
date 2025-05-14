@@ -46,7 +46,7 @@ class Graphormer(BaseModel):
         act_dropout = 0.0
 
         max_d = 0
-        G = to_networkx(data, to_undirected=True)
+        G = to_networkx(data, to_undirected=False)
         if len(G) > 1:
             max_d = max(max_d, nx.diameter(G))
         num_spatial = (max_d + 1) + 1
@@ -55,6 +55,8 @@ class Graphormer(BaseModel):
         edge_type = 'edge_type' # or multi-hop
 
         self.encoder = GraphormerEncoder(
+            num_in_degree=num_in_degree,
+            num_out_degree=num_out_degree,
             num_edges=num_edges,
             num_spatial=num_spatial,
             num_edge_dis=num_edge_dis,
@@ -112,10 +114,9 @@ def init_graphormer_params(module):
 class GraphormerEncoder(nn.Module):
     def __init__(
             self,
-            # max_nodes: int,
-            # num_atoms: int,
-            # num_in_degree: int,
-            # num_out_degree: int,
+            max_nodes: int,
+            num_in_degree: int,
+            num_out_degree: int,
             num_edges: int,
             num_spatial: int,
             num_edge_dis: int,
@@ -137,13 +138,12 @@ class GraphormerEncoder(nn.Module):
             num_classes: int,
     ):
         super().__init__()
-        # self.max_nodes = max_nodes
+        self.max_nodes = max_nodes
 
         # core Graphormer graph encoder
         self.graph_encoder = GraphormerGraphEncoder(
-            # num_atoms=num_atoms,
-            # num_in_degree=num_in_degree,
-            # num_out_degree=num_out_degree,
+            num_in_degree=num_in_degree,
+            num_out_degree=num_out_degree,
             num_edges=num_edges,
             num_spatial=num_spatial,
             num_edge_dis=num_edge_dis,
@@ -227,9 +227,8 @@ class GraphormerEncoder(nn.Module):
 class GraphormerGraphEncoder(nn.Module):
     def __init__(
             self,
-            # num_atoms: int,
-            # num_in_degree: int,
-            # num_out_degree: int,
+            num_in_degree: int,
+            num_out_degree: int,
             num_edges: int,
             num_spatial: int,
             num_edge_dis: int,
@@ -256,22 +255,18 @@ class GraphormerGraphEncoder(nn.Module):
 
         super().__init__()
 
-        self.dropout_module = Dropout(
-            dropout, module_name=self.__class__.__name__
-        )
+        self.dropout_module = Dropout(dropout, module_name=self.__class__.__name__)
         self.layerdrop = layerdrop
         self.embedding_dim = embedding_dim
         self.apply_graphormer_init = apply_graphormer_init
         self.traceable = traceable
 
-        # self.graph_node_feature = GraphNodeFeature(
-        #     num_heads=num_attention_heads,
-        #     num_atoms=num_atoms,
-        #     num_in_degree=num_in_degree,
-        #     num_out_degree=num_out_degree,
-        #     hidden_dim=embedding_dim,
-        #     n_layers=num_encoder_layers,
-        # )
+        self.graph_node_feature = GraphNodeFeature(
+            num_in_degree=num_in_degree,
+            num_out_degree=num_out_degree,
+            hidden_dim=embedding_dim,
+            n_layers=num_encoder_layers,
+        )
 
         self.graph_attn_bias = GraphAttnBias(
             num_heads=num_attention_heads,
@@ -351,8 +346,8 @@ class GraphormerGraphEncoder(nn.Module):
 
         if token_embeddings is not None:
             x = token_embeddings
-        # else:
-            # x = self.graph_node_feature(batched_data)
+        else:
+            x = self.graph_node_feature(batched_data)
 
         if perturb is not None:
             # ic(torch.mean(torch.abs(perturb)))
@@ -402,51 +397,33 @@ class GraphormerGraphEncoder(nn.Module):
         else:
             return inner_states, graph_rep
 
-# class GraphNodeFeature(nn.Module):
-#     """
-#     Compute node features for each node in the graph.
-#     """
-#
-#     def __init__(
-#             self, num_heads, num_atoms, num_in_degree, num_out_degree, hidden_dim, n_layers
-#     ):
-#         super(GraphNodeFeature, self).__init__()
-#         self.num_heads = num_heads
-#         self.num_atoms = num_atoms
-#
-#         # 1 for graph token
-#         self.atom_encoder = nn.Embedding(num_atoms + 1, hidden_dim, padding_idx=0)
-#         self.in_degree_encoder = nn.Embedding(num_in_degree, hidden_dim, padding_idx=0)
-#         self.out_degree_encoder = nn.Embedding(
-#             num_out_degree, hidden_dim, padding_idx=0
-#         )
-#
-#         self.graph_token = nn.Embedding(1, hidden_dim)
-#
-#         self.apply(lambda module: init_params(module, n_layers=n_layers))
-#
-#     def forward(self, batched_data):
-#         x, in_degree, out_degree = (
-#             batched_data["x"],
-#             batched_data["in_degree"],
-#             batched_data["out_degree"],
-#         )
-#         n_graph, n_node = x.size()[:2]
-#
-#         # node feauture + graph token
-#         node_feature = self.atom_encoder(x).sum(dim=-2)  # [n_graph, n_node, n_hidden]
-#
-#         node_feature = (
-#                 node_feature
-#                 + self.in_degree_encoder(in_degree)
-#                 + self.out_degree_encoder(out_degree)
-#         )
-#
-#         graph_token_feature = self.graph_token.weight.unsqueeze(0).repeat(n_graph, 1, 1)
-#
-#         graph_node_feature = torch.cat([graph_token_feature, node_feature], dim=1)
-#
-#         return graph_node_feature
+class GraphNodeFeature(nn.Module):
+    """
+    Compute node features for each node in the graph.
+    """
+
+    def __init__(self, num_in_degree, num_out_degree, hidden_dim, n_layers):
+        super(GraphNodeFeature, self).__init__()
+        self.in_degree_encoder = nn.Embedding(num_in_degree, hidden_dim, padding_idx=0)
+        self.out_degree_encoder = nn.Embedding(num_out_degree, hidden_dim, padding_idx=0)
+
+        self.graph_token = nn.Embedding(1, hidden_dim)
+
+        self.apply(lambda module: init_params(module, n_layers=n_layers))
+
+    def forward(self, batched_data):
+        in_degree, out_degree = batched_data["in_degree"], batched_data["out_degree"],
+        n_graph, n_node = x.size()[:2]
+
+        # node feauture + graph token
+        # TODO: Extract true node features from x_dict and add them
+        node_feature = self.in_degree_encoder(in_degree) + self.out_degree_encoder(out_degree)
+
+        graph_token_feature = self.graph_token.weight.unsqueeze(0).repeat(n_graph, 1, 1)
+
+        graph_node_feature = torch.cat([graph_token_feature, node_feature], dim=1)
+
+        return graph_node_feature
 
 class GraphormerGraphEncoderLayer(nn.Module):
     def __init__(
