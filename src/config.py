@@ -82,7 +82,7 @@ class CustomConfig:
     optimiser: str = "Adam"
     max_steps_per_epoch: int = 2000
     batch_size: int = 128
-    num_workers: int = 2
+    num_workers: int = 6
     device: torch.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     ego_ids: bool = True
     save_artifacts: bool = True

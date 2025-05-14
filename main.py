@@ -7,7 +7,7 @@ os.environ['XDG_CACHE_HOME'] = '/tudelft.net/staff-umbrella/CSE3000GLTD/ignacio/
 from src.models.fraudgt import FraudGT
 
 from src.config import CustomConfig
-from src.dataloader import RelBenchDataLoader 
+from src.dataloader import RelBenchDataLoader
 from src.models.hetero_sage import HeteroGraphSage
 
 from src.train import train
@@ -81,7 +81,7 @@ if __name__ == "__main__":
         root_dir=config.data_dir,
         batch_size=config.batch_size,
         num_neighbors=config.num_neighbors,
-        num_workers=2,
+        num_workers=6,
         temporal_strategy=config.temporal_strategy,
         reverse_mp=config.reverse_mp,
         add_ports=config.port_numbering,
