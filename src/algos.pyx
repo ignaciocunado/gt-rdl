@@ -16,6 +16,7 @@ def floyd_warshall(adjacency_matrix):
         adjacency_matrix.astype(numpy.int16, order='C', casting='safe', copy=True)
     cdef numpy.ndarray[numpy.int16_t, ndim=2, mode='c'] path = \
         -1 * numpy.ones((n, n), dtype=numpy.int16)
+    cdef int16_t *path_ptr = <int16_t*> &path[0, 0]
 
     cdef unsigned int i, j, k
     cdef int16_t M_ij, M_ik, cost_ikkj
@@ -33,7 +34,7 @@ def floyd_warshall(adjacency_matrix):
     # Floyd–Warshall core
     for k in range(n):
         M_k_ptr = M_ptr + n * k
-        for i in range(n):
+        for i in prange(n, nogil=True, schedule='static'):
             M_i_ptr = M_ptr + n * i
             M_ik = M_i_ptr[k]
             for j in range(n):
@@ -41,7 +42,7 @@ def floyd_warshall(adjacency_matrix):
                 M_ij = M_i_ptr[j]
                 if M_ij > cost_ikkj:
                     M_i_ptr[j] = cost_ikkj
-                    path[i][j] = k
+                    path_ptr[i*n + j] = <int16_t>k
 
     # set unreachable path to 510
     for i in range(n):
