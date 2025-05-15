@@ -16,6 +16,8 @@ from relbench.modeling.utils import get_stype_proposal
 from relbench.datasets import get_dataset
 from relbench.tasks import get_task
 
+from src.utils import preprocess_item
+
 
 class GloveTextEmbedding:
     """Text embedding class using GloVe embeddings via sentence-transformers.
@@ -260,6 +262,7 @@ class RelBenchDataLoader:
                 task=self.task,
             )
             self.entity_table = table_input.nodes[0]
+            self.graph = preprocess_item(self.graph)
             loader_dict[split] = NeighborLoader(
                 self.graph,
                 num_neighbors=self.num_neighbors,
