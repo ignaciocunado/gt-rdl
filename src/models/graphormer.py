@@ -114,8 +114,20 @@ class Graphormer(BaseModel):
         if self.embed_out is not None:
             self.embed_out.reset_parameters()
 
-    def forward(self, batched_data, perturb=None, masked_tokens=None, **unused):
-        inner_states, graph_rep = self.graph_encoder(batched_data,perturb=perturb)
+    def upgrade_state_dict_named(self, state_dict, name):
+        if not self.load_softmax:
+            for k in list(state_dict.keys()):
+                if "embed_out.weight" in k or "lm_output_learned_bias" in k:
+                    del state_dict[k]
+        return state_dict
+
+    # def max_nodes(self):
+    #     """Maximum output length supported by the encoder."""
+    #     return self.max_nodes
+
+    def post_forward(self, x_dict: Dict[str, Tensor], batch: HeteroData, entity_table: NodeType, seed_time: Tensor):
+        masked_tokens = None
+        inner_states, graph_rep = self.graph_encoder(batch, x_dict, perturb=None)
 
         x = inner_states[-1].transpose(0, 1)
 
@@ -126,30 +138,14 @@ class Graphormer(BaseModel):
         x = self.layer_norm(self.activation_fn(self.lm_head_transform_weight(x)))
 
         # project back to size of vocabulary
-        if self.share_input_output_embed and hasattr(
-                self.graph_encoder.embed_tokens, "weight"
-        ):
+        if self.share_input_output_embed and hasattr(self.graph_encoder.embed_tokens, "weight"):
             x = F.linear(x, self.graph_encoder.embed_tokens.weight)
         elif self.embed_out is not None:
-            x = self.embed_out(x)
+            x = self.embed_out(x) # TODO: x_dict[entity_table][: seed_time.size(0)]
         if self.lm_output_learned_bias is not None:
             x = x + self.lm_output_learned_bias
 
         return x
-
-    # def max_nodes(self):
-    #     """Maximum output length supported by the encoder."""
-    #     return self.max_nodes
-
-    def upgrade_state_dict_named(self, state_dict, name):
-        if not self.load_softmax:
-            for k in list(state_dict.keys()):
-                if "embed_out.weight" in k or "lm_output_learned_bias" in k:
-                    del state_dict[k]
-        return state_dict
-
-    def post_forward(self, x_dict: Dict[str, Tensor], batch: HeteroData, entity_table: NodeType, seed_time: Tensor):
-        pass
 
 
 def init_graphormer_params(module):
@@ -235,11 +231,7 @@ class GraphormerGraphEncoder(nn.Module):
         self.embed_scale = embed_scale
 
         if q_noise > 0:
-            self.quant_noise = quant_noise(
-                nn.Linear(self.embedding_dim, self.embedding_dim, bias=False),
-                q_noise,
-                qn_block_size,
-            )
+            self.quant_noise = quant_noise(nn.Linear(self.embedding_dim, self.embedding_dim, bias=False),q_noise,qn_block_size)
         else:
             self.quant_noise = None
 
@@ -283,6 +275,7 @@ class GraphormerGraphEncoder(nn.Module):
     def forward(
             self,
             batched_data,
+            x_dict,
             perturb=None,
             last_state_only: bool = False,
             token_embeddings: Optional[torch.Tensor] = None,
@@ -301,7 +294,7 @@ class GraphormerGraphEncoder(nn.Module):
         if token_embeddings is not None:
             x = token_embeddings
         else:
-            x = self.graph_node_feature(batched_data)
+            x = self.graph_node_feature(batched_data, x_dict)
 
         if perturb is not None:
             # ic(torch.mean(torch.abs(perturb)))
@@ -309,7 +302,7 @@ class GraphormerGraphEncoder(nn.Module):
 
         # x: B x T x C
 
-        attn_bias = self.graph_attn_bias(batched_data)
+        attn_bias = self.graph_attn_bias(batched_data, x_dict)
 
         if self.embed_scale is not None:
             x = x * self.embed_scale
@@ -519,12 +512,8 @@ class GraphormerGraphEncoderLayer(nn.Module):
         self.qn_block_size = qn_block_size
         self.pre_layernorm = pre_layernorm
 
-        self.dropout_module = Dropout(
-            dropout, module_name=self.__class__.__name__
-        )
-        self.activation_dropout_module = Dropout(
-            activation_dropout, module_name=self.__class__.__name__
-        )
+        self.dropout_module = Dropout(dropout, module_name=self.__class__.__name__)
+        self.activation_dropout_module = Dropout(activation_dropout, module_name=self.__class__.__name__)
 
         # Initialize blocks
         self.activation_fn = GELU
@@ -541,31 +530,16 @@ class GraphormerGraphEncoderLayer(nn.Module):
         # layer norm associated with the self attention layer
         self.self_attn_layer_norm = LayerNorm(self.embedding_dim)
 
-        self.fc1 = self.build_fc1(
-            self.embedding_dim,
-            ffn_embedding_dim,
-            q_noise=q_noise,
-            qn_block_size=qn_block_size,
-        )
-        self.fc2 = self.build_fc2(
-            ffn_embedding_dim,
-            self.embedding_dim,
-            q_noise=q_noise,
-            qn_block_size=qn_block_size,
-        )
+        self.fc1 = quant_noise(nn.Linear(self.embedding_dim, ffn_embedding_dim), q_noise, qn_block_size)
+        self.fc2 = quant_noise(nn.Linear(ffn_embedding_dim, self.embedding_dim), q_noise, qn_block_size)
 
         # layer norm associated with the position wise feed-forward NN
         self.final_layer_norm = LayerNorm(self.embedding_dim)
 
-    def build_fc1(self, input_dim, output_dim, q_noise, qn_block_size):
-        return quant_noise(nn.Linear(input_dim, output_dim), q_noise, qn_block_size)
-
-    def build_fc2(self, input_dim, output_dim, q_noise, qn_block_size):
-        return quant_noise(nn.Linear(input_dim, output_dim), q_noise, qn_block_size)
-
     def forward(
             self,
             x: torch.Tensor,
+            x_dict: Dict[str, torch.Tensor],
             self_attn_bias: Optional[torch.Tensor] = None,
             self_attn_mask: Optional[torch.Tensor] = None,
             self_attn_padding_mask: Optional[torch.Tensor] = None,
