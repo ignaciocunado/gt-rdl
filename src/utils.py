@@ -201,7 +201,7 @@ def convert_to_single_emb(x, offset: int = 512):
     x = x + feature_offset
     return x
 
-def preprocess_item(item): #TODO: Figure out edge attributes if we add them
+def preprocess_item(item): #TODO: Figure out edge attributes if we add them and shortest paths
     homo_data = item.to_homogeneous(add_node_type=True, add_edge_type=True)
     edge_index = homo_data.edge_index
     N = homo_data.node_type.size(0)
@@ -218,18 +218,18 @@ def preprocess_item(item): #TODO: Figure out edge attributes if we add them
     #         convert_to_single_emb(edge_attr) + 1
     # )
 
-    logging.info("Computing shortest path...")
-    shortest_path_result, path = algos.floyd_warshall(adj.numpy())
-    logging.info("Done!")
-    max_dist = np.amax(shortest_path_result)
+    # logging.info("Computing shortest path...")
+    # shortest_path_result, path = algos.floyd_warshall(adj.numpy())
+    # logging.info("Done!")
+    # max_dist = np.amax(shortest_path_result)
     # edge_input = algos.gen_edge_input(max_dist, path, attn_edge_type.numpy())
-    spatial_pos = torch.from_numpy((shortest_path_result)).long()
+    # spatial_pos = torch.from_numpy((shortest_path_result)).long()
     attn_bias = torch.zeros([N + 1, N + 1], dtype=torch.float)  # with graph token
 
     # combine
     item.attn_bias = attn_bias
     # item.attn_edge_type = attn_edge_type
-    item.spatial_pos = spatial_pos
+    # item.spatial_pos = spatial_pos
     item.in_degree = adj.long().sum(dim=1).view(-1)
     item.out_degree = item.in_degree  # for undirected graph
     # item.edge_input = torch.from_numpy(edge_input).long()
