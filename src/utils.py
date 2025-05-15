@@ -6,6 +6,7 @@ import sys
 from datetime import datetime
 
 import torch
+
 from torch import nn
 from torch.nn import functional as F
 from torch_geometric.data import HeteroData
@@ -83,6 +84,21 @@ def analyze_multi_edges(data: HeteroData) -> List[EdgeType]:
         print("\nNo multi-edges found in the graph.")
     
     return multi_edge_types
+
+
+def concat_node_features_to_edge(batch, x_dict):
+    for edge_type in batch.edge_types:
+        src, rel, dst = edge_type
+        edge_index = batch[edge_type].edge_index
+        row, col = edge_index   # each of shape [E]
+
+        src_feats = x_dict[src][row]   # shape [E, D]
+        dst_feats = x_dict[dst][col]   # shape [E, D]
+        new_feat = torch.cat([src_feats, dst_feats], dim=1)
+
+        batch[edge_type].edge_attr = new_feat
+
+    return batch, x_dict
 
 def graphormer_softmax(x, dim: int, onnx_trace: bool = False):
     if onnx_trace:
@@ -235,3 +251,4 @@ def preprocess_item(item): #TODO: Figure out edge attributes if we add them and 
     # item.edge_input = torch.from_numpy(edge_input).long()
 
     return item
+
