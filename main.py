@@ -10,6 +10,7 @@ from src.dataloader import RelBenchDataLoader
 from src.models.hetero_sage import HeteroGraphSage
 from src.models.fraudgt import FraudGT
 from src.models.globalhgt import GlobalHGT
+from src.models.graphormer import Graphormer
 
 from src.train import train
 from src.utils import analyze_multi_edges
@@ -103,9 +104,15 @@ if __name__ == "__main__":
 
     model = None
 
-    if args.model == 'global':
-        # Global MP transformer
-        pass
+    if args.model == 'graphormer':
+        raise ValueError("Graphormer is not yet fully implemented")
+        # model = Graphormer(
+        #     data=data_loader.graph,
+        #     col_stats_dict=data_loader.col_stats_dict,
+        #     channels=config.channels,
+        #     out_channels=config.out_channels,
+        #     torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
+        # ).to(config.device)
     elif args.model == 'local':
         model = FraudGT(
             data=data_loader.graph,
@@ -157,7 +164,7 @@ if __name__ == "__main__":
     wandb.init(
         project="Graph Learning",
         config={
-                   "model": 'Global MP Transformer' if args.model == 'global' else 'FraudGT' if args.model == 'local' else 'GlobalHGT' if args.model == 'globalhgt' else 'Arbitrary Model',
+                   "model": 'Graphormer' if args.model == 'graphormer' else 'FraudGT' if args.model == 'local' else 'GlobalHGT' if args.model == 'globalhgt' else 'Arbitrary Model',
                } | config.__dict__
     )
 
