@@ -105,14 +105,14 @@ if __name__ == "__main__":
     model = None
 
     if args.model == 'graphormer':
-        raise ValueError("Graphormer is not yet fully implemented")
-        # model = Graphormer(
-        #     data=data_loader.graph,
-        #     col_stats_dict=data_loader.col_stats_dict,
-        #     channels=config.channels,
-        #     out_channels=config.out_channels,
-        #     torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
-        # ).to(config.device)
+        model = Graphormer(
+            data=data_loader.graph,
+            col_stats_dict=data_loader.col_stats_dict,
+            channels=config.channels,
+            out_channels=config.out_channels,
+            edge_featuers=config.edge_features,
+            torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
+        ).to(config.device)
     elif args.model == 'local':
         model = FraudGT(
             data=data_loader.graph,

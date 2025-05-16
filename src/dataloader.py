@@ -262,7 +262,7 @@ class RelBenchDataLoader:
                 task=self.task,
             )
             self.entity_table = table_input.nodes[0]
-            self.graph = preprocess_item(self.graph)
+            # self.graph = preprocess_item(self.graph)
             loader_dict[split] = NeighborLoader(
                 self.graph,
                 num_neighbors=self.num_neighbors,

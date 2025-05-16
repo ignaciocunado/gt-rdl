@@ -12,7 +12,7 @@ from torch_geometric.typing import NodeType
 from torch_geometric.utils import to_networkx, degree
 
 from src.models.base_model import BaseModel
-from src.utils import quant_noise, graphormer_softmax
+from src.utils import quant_noise, graphormer_softmax, concat_node_features_to_edge, convert_to_single_emb
 
 
 class Graphormer(BaseModel):
@@ -24,6 +24,7 @@ class Graphormer(BaseModel):
             channels: int,
             out_channels: int,
             num_layers: int = 2,
+            edge_featuers: bool = False,
             torch_frame_model_kwargs: Dict[str, Any] = {},
     ):
         super().__init__(
@@ -33,6 +34,7 @@ class Graphormer(BaseModel):
             torch_frame_model_kwargs=torch_frame_model_kwargs,
         )
 
+        self.edge_features = edge_featuers
         multi_hop_max_dist = 5
         embedding_dim = channels
         num_attention_heads = 8
@@ -45,28 +47,30 @@ class Graphormer(BaseModel):
         attention_dropout = 0.1
         activation_dropout = 0.0
 
-        max_d = 0
-        G = to_networkx(data, to_undirected=False)
-        if len(G) > 1:
-            max_d = max(max_d, nx.diameter(G))
+        max_d = 6
+        # G = to_networkx(data, to_undirected=False)
+        # if len(G) > 1:
+        #     max_d = max(max_d, nx.diameter(G))
         num_spatial = (max_d + 1) + 1
 
         num_edge_dis = 128
         edge_type = 'edge_type' # or multi-hop
 
         max_in_deg = 0
-        min_in_deg = 0
+        max_out_deg = 0
         for (src_type, rel_type, dst_type), edge_index in data.edge_index_dict.items():
-            row, col = edge_index                    # row = dst nodes, col = src nodes
-            deg = degree(row, num_nodes=data[dst_type].num_nodes, dtype=torch.long)
-            max_in_deg = max(max_in_deg, int(deg.max().item()))
-            min_in_deg = min(min_in_deg, int(deg.min().item()))
+            src_idx = edge_index[0]
+            dst_idx = edge_index[1]
+            deg_in = degree(dst_idx, num_nodes=data[dst_type].num_nodes, dtype=torch.long)
+            max_in_deg = max(max_in_deg, int(deg_in.max().item()))
+            deg_out = degree(src_idx, num_nodes=data[src_type].num_nodes, dtype=torch.long)
+            max_out_deg = max(max_out_deg, int(deg_out.max().item()))
 
         self.graph_encoder = GraphormerGraphEncoder(
             # < for graphormer
             node_types=data.node_types,
             num_in_degree=max_in_deg + 1,
-            num_out_degree=min_in_deg + 1,
+            num_out_degree=max_out_deg + 1,
             num_edges=len(data.edge_types),
             num_spatial=num_spatial,
             num_edge_dis=num_edge_dis, # Only used when edge_type is multi-hop
@@ -96,7 +100,7 @@ class Graphormer(BaseModel):
 
         self.masked_lm_pooler = nn.Linear(embedding_dim, embedding_dim)
         self.lm_head_transform_weight = nn.Linear(embedding_dim, embedding_dim)
-        self.activation_fn = nn.GELU
+        self.activation_fn = nn.GELU()
         self.layer_norm = LayerNorm(embedding_dim)
 
         self.lm_output_learned_bias = None
@@ -105,7 +109,7 @@ class Graphormer(BaseModel):
             self.lm_output_learned_bias = nn.Parameter(torch.zeros(1))
 
             if not self.share_input_output_embed:
-                self.embed_out = nn.Linear(embedding_dim, out_channels, bias=False)
+                self.embed_out = nn.Linear(embedding_dim, out_channels, bias=True)
             else:
                 raise NotImplementedError
 
@@ -126,6 +130,11 @@ class Graphormer(BaseModel):
     #     return self.max_nodes
 
     def post_forward(self, x_dict: Dict[str, Tensor], batch: HeteroData, entity_table: NodeType, seed_time: Tensor):
+        if self.edge_features:
+            batch, x_dict = concat_node_features_to_edge(batch, x_dict)
+
+        batch = self.preprocess(batch, x_dict)
+
         masked_tokens = None
         inner_states, graph_rep = self.graph_encoder(batch, x_dict, perturb=None)
 
@@ -140,12 +149,43 @@ class Graphormer(BaseModel):
         # project back to size of vocabulary
         if self.share_input_output_embed and hasattr(self.graph_encoder.embed_tokens, "weight"):
             x = F.linear(x, self.graph_encoder.embed_tokens.weight)
-        elif self.embed_out is not None:
-            x = self.embed_out(x) # TODO: x_dict[entity_table][: seed_time.size(0)]
-        if self.lm_output_learned_bias is not None:
-            x = x + self.lm_output_learned_bias
 
-        return x
+        x_dict = self.rebuild_x_dict(x, x_dict)
+
+        return self.embed_out(x_dict[entity_table][: seed_time.size(0)])
+
+    def preprocess(self, batch: HeteroData, x_dict: Dict[str, Tensor]) -> HeteroData:
+        batch.x = torch.cat([x_dict[node_type] for node_type in batch.node_types], dim=0) # TODO: Rebuild x-dict again
+
+        homo = batch.to_homogeneous(add_node_type=True, add_edge_type=True)
+        edge_attr, edge_index, rel_ids, x = homo.edge_attr, homo.edge_index, homo.edge_type, batch.x
+
+        N = x.size(0)
+        if len(edge_attr.size()) == 1:
+            edge_attr = edge_attr[:, None]
+        attn_edge_type = torch.zeros([N, N], dtype=torch.long)
+        attn_edge_type[edge_index[0], edge_index[1]] = rel_ids + 1
+
+        N = homo.node_type.size(0)
+        adj = torch.zeros([N, N], dtype=torch.bool)
+        adj[edge_index[0, :], edge_index[1, :]] = True
+
+        attn_bias = torch.zeros([N + 1, N + 1], dtype=torch.float)  # with graph token
+
+        batch.x = batch.x.unsqueeze(0)
+        batch.attn_edge_type = attn_edge_type.unsqueeze(0)
+        batch.attn_bias = attn_bias.unsqueeze(0)
+        batch.in_degree = adj.long().sum(dim=1).view(-1)
+        batch.out_degree = batch.in_degree  # for undirected graph
+        return batch
+
+    def rebuild_x_dict(self, x, x_dict):
+        x = x[0]
+        index = 0
+        for type in x_dict:
+            x_dict[type] = x[index : index + x_dict[type].size(0)]
+            index += x_dict[type].size(0)
+        return x_dict
 
 
 def init_graphormer_params(module):
@@ -251,7 +291,6 @@ class GraphormerGraphEncoder(nn.Module):
                     dropout=self.dropout_module.p,
                     attention_dropout=attention_dropout,
                     activation_dropout=activation_dropout,
-                    export=export,
                     q_noise=q_noise,
                     qn_block_size=qn_block_size,
                     pre_layernorm=pre_layernorm,
@@ -274,7 +313,7 @@ class GraphormerGraphEncoder(nn.Module):
 
     def forward(
             self,
-            batched_data,
+            batch,
             x_dict,
             perturb=None,
             last_state_only: bool = False,
@@ -282,19 +321,15 @@ class GraphormerGraphEncoder(nn.Module):
             attn_mask: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         # compute padding mask. This is needed for multi-head attention
-        data_x = batched_data["x"]
+        data_x = batch["x"]
         n_graph, n_node = data_x.size()[:2]
-        padding_mask = (data_x[:, :, 0]).eq(0)  # B x T x 1
-        padding_mask_cls = torch.zeros(
-            n_graph, 1, device=padding_mask.device, dtype=padding_mask.dtype
-        )
-        padding_mask = torch.cat((padding_mask_cls, padding_mask), dim=1)
+        padding_mask = None
         # B x (T+1) x 1
 
         if token_embeddings is not None:
             x = token_embeddings
         else:
-            x = self.graph_node_feature(batched_data, x_dict)
+            x = self.graph_node_feature(batch)
 
         if perturb is not None:
             # ic(torch.mean(torch.abs(perturb)))
@@ -302,7 +337,7 @@ class GraphormerGraphEncoder(nn.Module):
 
         # x: B x T x C
 
-        attn_bias = self.graph_attn_bias(batched_data, x_dict)
+        attn_bias = self.graph_attn_bias(batch, x_dict)
 
         if self.embed_scale is not None:
             x = x * self.embed_scale
@@ -360,26 +395,21 @@ class GraphNodeFeature(nn.Module):
 
         self.apply(lambda module: init_params(module, n_layers=n_layers))
 
-    def forward(self, batch, x_dict):
-        feats = []
-        for type in self.node_types:
-            h = x_dict[type]
-            # if self.type_embed is not None:
-            #     type_id = h.new_full((B, h.size(1)), i)
-            #     h = h + self.type_embed(type_id).unsqueeze(2).transpose(1,2)
-            in_deg  = batch[type].in_degree # TODO: Add in and out degree per node type
-            out_deg = batch[type].out_degree
-            h = h + self.in_degree_encoder(in_deg) + self.out_degree_encoder(out_deg)
-            x_dict[type] = h
-            feats.append(h)
+    def forward(self, batched_data):
+        x, in_degree, out_degree = (
+            batched_data["x"],
+            batched_data["in_degree"],
+            batched_data["out_degree"],
+        )
+        n_graph, n_node = x.size()[:2]
 
-        H = torch.cat(feats, dim=1)
-        B = next(iter(x_dict.values())).size(0)
-        graph_token_feature = self.graph_token.weight.unsqueeze(0).repeat(B, 1, 1)
+        # node feauture + graph token
 
-        graph_node_feature = torch.cat([graph_token_feature, H], dim=1)
+        node_feature = x + self.in_degree_encoder(in_degree) + self.out_degree_encoder(out_degree)
+        graph_token_feature = self.graph_token.weight.unsqueeze(0).repeat(n_graph, 1, 1)
+        graph_node_feature = torch.cat([graph_token_feature, node_feature], dim=1)
 
-        return graph_node_feature # Or x_dict????
+        return graph_node_feature
 
 class GraphAttnBias(nn.Module):
     """
@@ -418,26 +448,20 @@ class GraphAttnBias(nn.Module):
         #     batch["attn_edge_type"],
         # )
 
-        attn_bias, edge_input, attn_edge_type = (
+        attn_bias, edge_input, attn_edge_type, x = (
             batch["attn_bias"],
             batch["edge_input"],
             batch["attn_edge_type"],
+            batch["x"],
         )
 
-        rels = batch.edge_types
-        # B, N, _ = spatial_pos.size()
-        # device = spatial_pos.device
-        B, N = attn_bias.size(0), attn_bias.size(-1)
-        device = attn_bias.device
-        attn_edge_type = torch.zeros(B, N, N, len(rels), dtype=torch.long, device=device)
-        for r, (src_t, rel_name, dst_t) in enumerate(rels):
-            row, col = batch[(src_t, rel_name, dst_t)].edge_index
-            attn_edge_type[:, row, col, r] = batch[(src_t, rel_name, dst_t)].attn_edge_type
+        n_graph, n_node = x.size()[:2]
+        graph_attn_bias = attn_bias.clone()
+        graph_attn_bias = graph_attn_bias.unsqueeze(1).repeat(
+            1, self.num_heads, 1, 1
+        )  # [n_graph, n_head, n_node+1, n_node+1]
 
-        graph_attn_bias = attn_bias.clone().unsqueeze(1).repeat(1, self.num_heads, 1, 1)  # [n_graph, n_head, n_node+1, n_node+1]
-        # n_graph, n_node, _ = spatial_pos.shape
-
-        # spatial pos
+        # TODO: spatial pos
         # [n_graph, n_node, n_node, n_head] -> [n_graph, n_head, n_node, n_node]
         # spatial_pos_bias = self.spatial_pos_encoder(spatial_pos).permute(0, 3, 1, 2)
         # graph_attn_bias[:, :, 1:, 1:] = graph_attn_bias[:, :, 1:, 1:] + spatial_pos_bias
@@ -477,7 +501,7 @@ class GraphAttnBias(nn.Module):
             # ).permute(0, 3, 1, 2)
         else:
             # [n_graph, n_node, n_node, n_head] -> [n_graph, n_head, n_node, n_node]
-            edge_input = self.edge_encoder(attn_edge_type).mean(-2).permute(0, 3, 1, 2)
+            edge_input = self.edge_encoder(attn_edge_type).permute(0, 3, 1, 2)
 
         graph_attn_bias[:, :, 1:, 1:] = graph_attn_bias[:, :, 1:, 1:] + edge_input
         graph_attn_bias = graph_attn_bias + attn_bias.unsqueeze(1)  # reset
@@ -493,7 +517,6 @@ class GraphormerGraphEncoderLayer(nn.Module):
             dropout: float = 0.1,
             attention_dropout: float = 0.1,
             activation_dropout: float = 0.1,
-            export: bool = False,
             q_noise: float = 0.0,
             qn_block_size: int = 8,
             init_fn: Callable = None,
@@ -516,10 +539,10 @@ class GraphormerGraphEncoderLayer(nn.Module):
         self.activation_dropout_module = Dropout(activation_dropout, module_name=self.__class__.__name__)
 
         # Initialize blocks
-        self.activation_fn = GELU
+        self.activation_fn = GELU()
 
         self.self_attn = MultiheadAttention(
-            self.embed_dim,
+            self.embedding_dim,
             num_attention_heads,
             dropout=attention_dropout,
             self_attention=True,
@@ -539,7 +562,6 @@ class GraphormerGraphEncoderLayer(nn.Module):
     def forward(
             self,
             x: torch.Tensor,
-            x_dict: Dict[str, torch.Tensor],
             self_attn_bias: Optional[torch.Tensor] = None,
             self_attn_mask: Optional[torch.Tensor] = None,
             self_attn_padding_mask: Optional[torch.Tensor] = None,

@@ -14,6 +14,8 @@ from torch_geometric.typing import EdgeType
 from collections import defaultdict
 
 import pyximport
+from torch_geometric.utils import get_laplacian
+
 pyximport.install(setup_args={"include_dirs": np.get_include()})
 from . import algos
 
