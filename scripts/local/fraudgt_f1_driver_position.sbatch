@@ -1,8 +1,8 @@
 #!/bin/sh
-#SBATCH --job-name="fraudgt_f1_driver_top_3"
+#SBATCH --job-name="fraudgt_f1_driver_position"
 #SBATCH --partition="general"      # Request partition.
 #SBATCH --qos=short                # short (4h max), medium (1.5 dys max) or long (7 days max)
-#SBATCH --time=00:02:00            # Request run time (wall-clock). Default is 1 minute
+#SBATCH --time=00:05:00            # Request run time (wall-clock). Default is 1 minute
 #SBATCH --tasks-per-node=1         # Set one task per node
 #SBATCH --cpus-per-task=4          # Request number of CPUs (threads) per task.
 #SBATCH --gres=gpu:1               # Request 1 GPU
@@ -18,5 +18,5 @@ module use /opt/insy/modulefiles
 module load cuda/11.8
 
 # Run script
-srun apptainer exec --nv --env-file .env -B /tudelft.net/staff-umbrella/CSE3000GLTD/ignacio/relbench-ignacio $APPTAINER_IMAGE python main.py --model local --dataset f1 --task driver-top3 --eval_freq 4 --batch_size 2048 --channels 64 --num_neighbors 50 50 --rev_mp --edge_features --dropouts 0.2 0.2 0.2
+srun apptainer exec --nv --env-file .env -B /tudelft.net/staff-umbrella/CSE3000GLTD/ignacio/relbench-ignacio $APPTAINER_IMAGE python main.py --model local --save_artifacts --dataset f1 --task driver-position --epochs 12 --optimiser adamW --eval_freq 2 --lr 0.0013 --batch_size 128 --channels 128 --num_layers_pre_gt 2 --num_neighbors 60 60 --rev_mp --port_numbering --dropouts 0.4 0.08 0.17
 
