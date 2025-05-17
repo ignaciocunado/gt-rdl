@@ -1,12 +1,12 @@
 #!/bin/sh
 #SBATCH --job-name="global_f1_driver_top_3"
-#SBATCH --partition="general"      # Request partition.
+#SBATCH --partition=ewi-st,general      # Request partition.
 #SBATCH --qos=short                # short (4h max), medium (1.5 dys max) or long (7 days max)
 #SBATCH --time=00:02:00            # Request run time (wall-clock). Default is 1 minute
 #SBATCH --tasks-per-node=1         # Set one task per node
 #SBATCH --cpus-per-task=4          # Request number of CPUs (threads) per task.
 #SBATCH --gres=gpu:1               # Request 1 GPU
-#SBATCH --mem=6GB                  # Request 4 GB of RAM in total
+#SBATCH --mem=16GB                  # Request 4 GB of RAM in total
 #SBATCH --mail-type=BEGIN,END,FAIL            # Set mail type to 'END' to receive a mail when the job finishes.
 #SBATCH --output=slurm-%x-%j.out   # Set name of output log. %j is the Slurm jobId
 #SBATCH --error=slurm-%x-%j.err    # Set name of error log. %j is the Slurm jobId

@@ -1,6 +1,6 @@
 #!/bin/sh
 #SBATCH --job-name="fraudgt_stack_user_engagement"
-#SBATCH --partition="st"      # Request partition.
+#SBATCH --partition=ewi-st,general      # Request partition.
 #SBATCH --qos=short                # short (4h max), medium (1.5 dys max) or long (7 days max)
 #SBATCH --time=02:45:00            # Request run time (wall-clock). Default is 1 minute
 #SBATCH --tasks-per-node=1         # Set one task per node
