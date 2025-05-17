@@ -163,6 +163,7 @@ def train(
                 best_val_metric = current_metric
                 best_test_metric = test_metrics[config.tune_metric]
                 wandb.log({
+                    "epoch": epoch,
                     "best_val_metric": best_val_metric,
                     "best_test_metric": test_metrics[config.tune_metric],
                 })
@@ -209,10 +210,6 @@ def train(
     test_metrics = task.evaluate(test_pred)
     logging.info(f"Best validation metrics: {best_metrics}")
     logging.info(f"Test metrics: {test_metrics}")
-    wandb.log({
-        "best_val_metric": best_val_metric,
-        "best_test_metric": best_test_metric,
-    })
     wandb.finish()
 
     return best_metrics, model
