@@ -163,14 +163,14 @@ class Graphormer(BaseModel):
         N = x.size(0)
         if len(edge_attr.size()) == 1:
             edge_attr = edge_attr[:, None]
-        attn_edge_type = torch.zeros([N, N], dtype=torch.long)
+        attn_edge_type = torch.zeros([N, N], dtype=torch.long, device=edge_index.device)
         attn_edge_type[edge_index[0], edge_index[1]] = rel_ids + 1
 
         N = homo.node_type.size(0)
-        adj = torch.zeros([N, N], dtype=torch.bool)
+        adj = torch.zeros([N, N], dtype=torch.bool, device=edge_index.device)
         adj[edge_index[0, :], edge_index[1, :]] = True
 
-        attn_bias = torch.zeros([N + 1, N + 1], dtype=torch.float)  # with graph token
+        attn_bias = torch.zeros([N + 1, N + 1], dtype=torch.float, device=edge_index.device)  # with graph token
 
         batch.x = batch.x.unsqueeze(0)
         batch.attn_edge_type = attn_edge_type.unsqueeze(0)
