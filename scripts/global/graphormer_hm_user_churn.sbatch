@@ -1,6 +1,6 @@
 #!/bin/sh
-#SBATCH --job-name="fraudgt_hm_user_churn"
-#SBATCH --partition="st"      # Request partition.
+#SBATCH --job-name="global_hm_user_churn"
+#SBATCH --partition=ewi-st,general      # Request partition.
 #SBATCH --qos=short                # short (4h max), medium (1.5 dys max) or long (7 days max)
 #SBATCH --time=03:00:00            # Request run time (wall-clock). Default is 1 minute
 #SBATCH --tasks-per-node=1         # Set one task per node
@@ -18,5 +18,5 @@ module use /opt/insy/modulefiles
 module load cuda/11.8
 
 # Run script
-srun apptainer exec --nv --env-file .env -B /tudelft.net/staff-umbrella/CSE3000GLTD/ignacio/relbench-ignacio $APPTAINER_IMAGE python main.py --model local --dataset hm --task user-churn --eval_freq 4 --batch_size 2048 --channels 64 --epochs 15 --num_neighbors 50 50 --rev_mp --edge_features --dropouts 0.0 0.0 0.0
+srun apptainer exec --nv --env-file .env -B /tudelft.net/staff-umbrella/CSE3000GLTD/ignacio/relbench-ignacio $APPTAINER_IMAGE python main.py --model graphormer --save_artifacts --dataset hm --task user-churn --eval_freq 4 --batch_size 2048 --channels 64 --epochs 15 --num_neighbors 50 50 --rev_mp --edge_features --dropouts 0.0 0.0 0.0
 

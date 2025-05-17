@@ -161,6 +161,12 @@ def train(
             
             if improved:
                 best_val_metric = current_metric
+                best_test_metric = test_metrics[config.tune_metric]
+                wandb.log({
+                    "epoch": epoch,
+                    "best_val_metric": best_val_metric,
+                    "best_test_metric": test_metrics[config.tune_metric],
+                })
                 state_dict = copy.deepcopy(model.state_dict())
                 best_metrics = val_metrics
                 no_improve_count = 0

@@ -11,6 +11,8 @@ from torch_geometric.typing import NodeType
 from torch_scatter import scatter_max
 
 from src.models.base_model import BaseModel
+from src.utils import concat_node_features_to_edge
+
 
 class FraudGT(BaseModel):
 
@@ -100,16 +102,7 @@ class FraudGT(BaseModel):
 
         # Concat source and destination node features for edges
         if self.edge_features:
-            for edge_type in batch.edge_types:
-                src, rel, dst = edge_type
-                edge_index = batch[edge_type].edge_index
-                row, col = edge_index   # each of shape [E]
-
-                src_feats = x_dict[src][row]   # shape [E, D]
-                dst_feats = x_dict[dst][col]   # shape [E, D]
-                new_feat = torch.cat([src_feats, dst_feats], dim=1)
-
-                batch[edge_type].edge_attr = new_feat
+            batch, x_dict = concat_node_features_to_edge(batch, x_dict)
 
         # Forward through transformer layers
         for i in range(self.num_layers):
