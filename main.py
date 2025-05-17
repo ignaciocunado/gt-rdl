@@ -150,6 +150,8 @@ if __name__ == "__main__":
         ).to(config.device)
 
     logging.info(f"Model: {model}")
+    total_params = sum(p.numel() for p in model.parameters())
+    logging.info(f"Total model parameters: {total_params}")
 
     # Initialize optimizer and loss function
     optimiser = None
