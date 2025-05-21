@@ -156,7 +156,7 @@ class Graphormer(BaseModel):
         attn_edge_type[edge_index[0], edge_index[1]] = rel_ids + 1
 
         N = homo.node_type.size(0)
-        adj = torch.zeros([N, N], dtype=torch.bool, device=edge_index.device)
+        adj = torch.zeros([N, N], dtype=torch.bool)
         adj[edge_index[0, :], edge_index[1, :]] = True
 
 
