@@ -111,6 +111,7 @@ if __name__ == "__main__":
             col_stats_dict=data_loader.col_stats_dict,
             channels=config.channels,
             out_channels=config.out_channels,
+            dropouts=config.dropouts,
             edge_featuers=config.edge_features,
             torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
         ).to(config.device)

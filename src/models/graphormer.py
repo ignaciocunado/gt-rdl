@@ -1,8 +1,6 @@
 from typing import Dict, Any, Callable, Optional, List, Tuple
 
 import math
-import networkx as nx
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,7 +8,6 @@ from torch import Tensor
 from torch.nn import LayerNorm, GELU
 from torch_geometric.data import HeteroData
 from torch_geometric.typing import NodeType
-from torch_geometric.utils import to_networkx, degree
 from .. import algos
 
 from src.models.base_model import BaseModel
@@ -25,6 +22,7 @@ class Graphormer(BaseModel):
             col_stats_dict: Dict,
             channels: int,
             out_channels: int,
+            dropouts: list,
             num_layers: int = 2,
             edge_featuers: bool = False,
             torch_frame_model_kwargs: Dict[str, Any] = {},
@@ -45,9 +43,9 @@ class Graphormer(BaseModel):
         apply_graphormer_init = True
         share_encoder_input_output_embed = False
         pre_layernorm = False
-        dropout = 0.1
-        attention_dropout = 0.1
-        activation_dropout = 0.0
+        dropout = dropouts[0]
+        attention_dropout = dropouts[1]
+        activation_dropout = dropouts[2]
 
         max_d = 700
         # G = to_networkx(data, to_undirected=False)
