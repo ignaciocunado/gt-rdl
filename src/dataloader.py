@@ -260,7 +260,7 @@ class RelBenchDataLoader:
         """
         loader_dict = {}
         if self.preprocess_graph:
-            self.graph = add_centrality_encoding_info(self.graph)
+            self.graph = add_centrality_encoding_info(self.graph, self.device)
 
         for split, table in self.tables.items():
             table_input = get_node_train_table_input(

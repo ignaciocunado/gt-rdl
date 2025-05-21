@@ -136,7 +136,8 @@ class Graphormer(BaseModel):
         return self.embed_out(x_dict[entity_table][: seed_time.size(0)])
 
     def concat_x_dict(self, batch: HeteroData, x_dict: Dict[str, Tensor]) -> HeteroData:
-        batch.x = torch.cat([x_dict[node_type] for node_type in batch.node_types], dim=0)
+        device = x_dict[next(iter(x_dict))].device
+        batch.x = torch.cat([x_dict[node_type] for node_type in batch.node_types], dim=0).to(device)
         batch.x = batch.x.unsqueeze(0)
         return batch
 

@@ -221,24 +221,20 @@ def convert_to_single_emb(x, offset: int = 512):
 
 
 @torch.no_grad()
-def add_centrality_encoding_info(item):
-    homo_data = item.to_homogeneous(add_node_type=True, add_edge_type=True)
-    edge_index = homo_data.edge_index
-
+def add_centrality_encoding_info(item, device):
     for ntype in item.node_types:
         num_nodes = item[ntype].num_nodes
-        device = edge_index.device
         in_deg = torch.zeros(num_nodes, dtype=torch.long, device=device)
-        out_deg = torch.zeros_like(in_deg)
+        out_deg = torch.zeros_like(in_deg, device=device)
 
         for edge_type in item.edge_types:
             src_type, rel, dst_type = edge_type
 
-            ei = item[edge_type].edge_index
+            ei = item[edge_type].edge_index.to(device)
             if dst_type == ntype:
-                in_deg += degree(ei[1], num_nodes=num_nodes, dtype=torch.long)
+                in_deg += degree(ei[1], num_nodes=num_nodes, dtype=torch.long).to(device)
             if src_type == ntype:
-                out_deg += degree(ei[0], num_nodes=num_nodes, dtype=torch.long)
+                out_deg += degree(ei[0], num_nodes=num_nodes, dtype=torch.long).to(device)
 
         # attach as *node-level* attributes
         item[ntype].in_degree = in_deg
