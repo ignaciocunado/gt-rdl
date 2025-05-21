@@ -47,7 +47,7 @@ def floyd_warshall(adjacency_matrix):
     # set unreachable path to 510
     for i in range(n):
         for j in range(n):
-            if M[i][j] >= 510 | M[i][j] <= -510:
+            if M[i][j] >= 510 or M[i][j] <= -510:
                 path[i][j] = 510
                 M[i][j] = 510
 
@@ -69,12 +69,12 @@ def gen_edge_input(max_dist, path, edge_feat):
     cdef unsigned int n = nrows
     cdef unsigned int max_dist_copy = max_dist
 
-    path_copy = path.astype(numpy.int64, order='C', casting='safe', copy=True)
-    edge_feat_copy = edge_feat.astype(numpy.int64, order='C', casting='safe', copy=True)
+    path_copy = path.astype(numpy.int16, order='C', copy=True)
+    edge_feat_copy = edge_feat.astype(numpy.int16, order='C', copy=True)
     assert path_copy.flags['C_CONTIGUOUS']
     assert edge_feat_copy.flags['C_CONTIGUOUS']
 
-    cdef numpy.ndarray[long, ndim=4, mode='c'] edge_fea_all = -1 * numpy.ones([n, n, max_dist_copy, edge_feat.shape[-1]], dtype=numpy.int64)
+    cdef numpy.ndarray[int16_t, ndim=4, mode='c'] edge_fea_all = -1 * numpy.ones([n, n, max_dist_copy, edge_feat.shape[-1]], dtype=numpy.int16)
     cdef unsigned int i, j, k, num_path, cur
 
     for i in range(n):
