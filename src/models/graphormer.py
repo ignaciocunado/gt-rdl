@@ -8,14 +8,12 @@ from torch import Tensor
 from torch.nn import LayerNorm, GELU
 from torch_geometric.data import HeteroData
 from torch_geometric.typing import NodeType
-from .. import algos
 
 from src.models.base_model import BaseModel
-from src.utils import quant_noise, graphormer_softmax, concat_node_features_to_edge, convert_to_single_emb
+from src.utils import quant_noise, graphormer_softmax, concat_node_features_to_edge
 
 
 class Graphormer(BaseModel):
-
     def __init__(
             self,
             data: HeteroData,
@@ -47,10 +45,7 @@ class Graphormer(BaseModel):
         attention_dropout = dropouts[1]
         activation_dropout = dropouts[2]
 
-        max_d = 700
-        # G = to_networkx(data, to_undirected=False)
-        # if len(G) > 1:
-        #     max_d = max(max_d, nx.diameter(G))
+        max_d = 700 # TODO: What value do we want? Can cause errors
         num_spatial = (max_d + 1) + 1
 
         num_edge_dis = 128
@@ -121,17 +116,13 @@ class Graphormer(BaseModel):
                     del state_dict[k]
         return state_dict
 
-    # def max_nodes(self):
-    #     """Maximum output length supported by the encoder."""
-    #     return self.max_nodes
-
     def post_forward(self, x_dict: Dict[str, Tensor], batch: HeteroData, entity_table: NodeType, seed_time: Tensor):
         if self.edge_features:
             batch, x_dict = concat_node_features_to_edge(batch, x_dict)
 
-        batch = self.preprocess(batch, x_dict)
+        batch = self.concat_x_dict(batch, x_dict)
 
-        inner_states, graph_rep = self.graph_encoder(batch, x_dict, perturb=None)
+        inner_states, graph_rep = self.graph_encoder(batch, perturb=None)
 
         x = inner_states[-1].transpose(0, 1)
         x = self.layer_norm(self.activation_fn(self.lm_head_transform_weight(x)))
@@ -144,36 +135,9 @@ class Graphormer(BaseModel):
 
         return self.embed_out(x_dict[entity_table][: seed_time.size(0)])
 
-    def preprocess(self, batch: HeteroData, x_dict: Dict[str, Tensor]) -> HeteroData:
+    def concat_x_dict(self, batch: HeteroData, x_dict: Dict[str, Tensor]) -> HeteroData:
         batch.x = torch.cat([x_dict[node_type] for node_type in batch.node_types], dim=0)
-        homo = batch.to_homogeneous(node_attrs=['in_degree', 'out_degree'], add_node_type=True, add_edge_type=True)
-        edge_attr, edge_index, rel_ids, x = homo.edge_attr, homo.edge_index, homo.edge_type, batch.x
-
-        N = x.size(0)
-        if len(edge_attr.size()) == 1:
-            edge_attr = edge_attr[:, None]
-        attn_edge_type = torch.zeros([N, N], dtype=torch.long, device=edge_index.device)
-        attn_edge_type[edge_index[0], edge_index[1]] = rel_ids + 1
-
-        N = homo.node_type.size(0)
-        adj = torch.zeros([N, N], dtype=torch.bool)
-        adj[edge_index[0, :], edge_index[1, :]] = True
-
-
-        shortest_path_result, path = algos.floyd_warshall(adj.numpy())
-        # max_dist = np.amax(shortest_path_result)
-        # edge_input = algos.gen_edge_input(max_dist, path, attn_edge_type.numpy())
-        spatial_pos = torch.from_numpy((shortest_path_result)).long()
-
-        attn_bias = torch.zeros([N + 1, N + 1], dtype=torch.float, device=edge_index.device)  # with graph token
-
         batch.x = batch.x.unsqueeze(0)
-        batch.attn_edge_type = attn_edge_type.unsqueeze(0)
-        batch.attn_bias = attn_bias.unsqueeze(0)
-        batch.in_degree = homo.in_degree
-        # batch.edge_input = torch.from_numpy(edge_input).long()
-        batch.spatial_pos = spatial_pos.unsqueeze(0)
-        batch.out_degree = homo.out_degree
         return batch
 
     def rebuild_x_dict(self, x, x_dict):
@@ -189,10 +153,8 @@ def init_graphormer_params(module):
     """
     Initialize the weights specific to the Graphormer Model.
     """
-
     def normal_(data):
-        # with FSDP, module params will be on CUDA, so we cast them back to CPU
-        # so that the RNG is consistent with and without FSDP
+        # with FSDP, module params will be on CUDA, so we cast them back to CPU so that the RNG is consistent with and without FSDP
         data.copy_(data.cpu().normal_(mean=0.0, std=0.02).to(data.device))
 
     if isinstance(module, nn.Linear):
@@ -310,7 +272,6 @@ class GraphormerGraphEncoder(nn.Module):
     def forward(
             self,
             batch,
-            x_dict,
             perturb=None,
             last_state_only: bool = False,
             token_embeddings: Optional[torch.Tensor] = None,
@@ -638,7 +599,8 @@ def init_params(module, n_layers):
         module.weight.data.normal_(mean=0.0, std=0.02)
 
 class MultiheadAttention(nn.Module):
-    """Multi-headed attention.
+    """
+    Multi-headed attention.
 
     See "Attention Is All You Need" for more details.
     """
@@ -691,8 +653,7 @@ class MultiheadAttention(nn.Module):
 
     def reset_parameters(self):
         if self.qkv_same_dim:
-            # Empirically observed the convergence to be much better with
-            # the scaled initialization
+            # Empirically observed the convergence to be much better with the scaled initialization
             nn.init.xavier_uniform_(self.k_proj.weight, gain=1 / math.sqrt(2))
             nn.init.xavier_uniform_(self.v_proj.weight, gain=1 / math.sqrt(2))
             nn.init.xavier_uniform_(self.q_proj.weight, gain=1 / math.sqrt(2))
@@ -717,7 +678,8 @@ class MultiheadAttention(nn.Module):
             before_softmax: bool = False,
             need_head_weights: bool = False,
     ) -> Tuple[Tensor, Optional[Tensor]]:
-        """Input shape: Time x Batch x Channel
+        """
+        Input shape: Time x Batch x Channel
 
         Args:
             key_padding_mask (ByteTensor, optional): mask to exclude
@@ -764,8 +726,7 @@ class MultiheadAttention(nn.Module):
         assert k is not None
         assert k.size(1) == src_len
 
-        # This is part of a workaround to get around fork/join parallelism
-        # not supporting Optional types.
+        # This is part of a workaround to get around fork/join parallelism not supporting Optional types.
         if key_padding_mask is not None and key_padding_mask.dim() == 0:
             key_padding_mask = None
 
@@ -773,7 +734,6 @@ class MultiheadAttention(nn.Module):
             assert key_padding_mask.size(0) == bsz
             assert key_padding_mask.size(1) == src_len
         attn_weights = torch.bmm(q, k.transpose(1, 2))
-        attn_weights = self.apply_sparse_mask(attn_weights, tgt_len, src_len, bsz)
 
         assert list(attn_weights.size()) == [bsz * self.num_heads, tgt_len, src_len]
 
@@ -811,13 +771,9 @@ class MultiheadAttention(nn.Module):
         if need_weights:
             attn_weights = attn_weights_float.view(bsz, self.num_heads, tgt_len, src_len).transpose(1, 0)
             if not need_head_weights:
-                # average attention weights over heads
-                attn_weights = attn_weights.mean(dim=0)
+                attn_weights = attn_weights.mean(dim=0) # average attention weights over heads
 
         return attn, attn_weights
-
-    def apply_sparse_mask(self, attn_weights, tgt_len: int, src_len: int, bsz: int):
-        return attn_weights
 
     def upgrade_state_dict_named(self, state_dict, name):
         prefix = name + "." if name != "" else ""

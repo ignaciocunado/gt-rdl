@@ -13,8 +13,9 @@ from torch.nn import functional as F
 from torch_geometric.data import HeteroData
 from torch_geometric.typing import EdgeType
 from torch_geometric.utils import degree
-
 pyximport.install(setup_args={"include_dirs": np.get_include()})
+from . import algos
+
 
 
 def logger_setup(log_dir: str = "logs"):
@@ -220,30 +221,9 @@ def convert_to_single_emb(x, offset: int = 512):
 
 
 @torch.no_grad()
-def preprocess_item(item):  # TODO: Figure out edge attributes if we add them and positional encodings
-    logging.info("Preprocessing graph...")
+def add_centrality_encoding_info(item):
     homo_data = item.to_homogeneous(add_node_type=True, add_edge_type=True)
     edge_index = homo_data.edge_index
-
-    N = homo_data.node_type.size(0)
-    # adj = torch.zeros([N, N], dtype=torch.bool, device=edge_index.device)
-    # adj[edge_index[0, :], edge_index[1, :]] = True
-    # attn_bias = torch.zeros([N + 1, N + 1], dtype=torch.float16, device=edge_index.device)  # with graph token
-
-    # # edge feature here
-    # if len(edge_attr.size()) == 1:
-    #     edge_attr = edge_attr[:, None]
-    # attn_edge_type = torch.zeros([N, N, edge_attr.size(-1)], dtype=torch.long)
-    # attn_edge_type[edge_index[0, :], edge_index[1, :]] = (
-    #         convert_to_single_emb(edge_attr) + 1
-    # )
-
-    # logging.info("Computing shortest path...")
-    # shortest_path_result, path = algos.floyd_warshall(adj.numpy())
-    # logging.info("Done!")
-    # max_dist = np.amax(shortest_path_result)
-    # edge_input = algos.gen_edge_input(max_dist, path, attn_edge_type.numpy())
-    # spatial_pos = torch.from_numpy((shortest_path_result)).long()
 
     for ntype in item.node_types:
         num_nodes = item[ntype].num_nodes
@@ -264,15 +244,30 @@ def preprocess_item(item):  # TODO: Figure out edge attributes if we add them an
         item[ntype].in_degree = in_deg
         item[ntype].out_degree = out_deg
 
-    # combine
-    # item.attn_bias = attn_bias.unsqueeze(0)
-    # item.attn_edge_type = attn_edge_type
-    # item.spatial_pos = spatial_pos
-    # item.edge_input = torch.from_numpy(edge_input).long()
-
-    if (torch.device("cuda") == edge_index.device):
-        torch.cuda.empty_cache()
-
-    logging.info("Preprocessing finished")
-
     return item
+
+@torch.no_grad()
+def preprocess_batch(batch):
+    homo = batch.to_homogeneous(node_attrs=['in_degree', 'out_degree'], add_node_type=True, add_edge_type=True)
+    edge_index, rel_ids = homo.edge_index, homo.edge_type
+
+    N = sum([batch[node_type].num_nodes for node_type in batch.node_types])
+    attn_edge_type = torch.zeros([N, N], dtype=torch.long, device=edge_index.device)
+    attn_edge_type[edge_index[0], edge_index[1]] = rel_ids + 1
+
+    N = homo.node_type.size(0)
+    adj = torch.zeros([N, N], dtype=torch.bool)
+    adj[edge_index[0, :], edge_index[1, :]] = True
+
+
+    shortest_path_result, path = algos.floyd_warshall(adj.numpy())
+    spatial_pos = torch.from_numpy(shortest_path_result).long().to(edge_index.device)
+
+    attn_bias = torch.zeros([N + 1, N + 1], dtype=torch.float, device=edge_index.device)  # with graph token
+
+    batch.attn_edge_type = attn_edge_type.unsqueeze(0)
+    batch.attn_bias = attn_bias.unsqueeze(0)
+    batch.in_degree = homo.in_degree
+    batch.spatial_pos = spatial_pos.unsqueeze(0)
+    batch.out_degree = homo.out_degree
+    return batch

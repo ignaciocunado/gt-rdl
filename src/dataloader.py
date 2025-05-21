@@ -1,9 +1,9 @@
-import json
 import os
+
 
 import numpy as np
 import torch
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any
 
 from torch_frame.data import StatType
 from torch_frame._stype import stype
@@ -15,8 +15,9 @@ from relbench.modeling.graph import make_pkey_fkey_graph, get_node_train_table_i
 from relbench.modeling.utils import get_stype_proposal
 from relbench.datasets import get_dataset
 from relbench.tasks import get_task
+from torch_geometric.transforms import Compose
 
-from src.utils import preprocess_item
+from src.utils import preprocess_batch, add_centrality_encoding_info
 
 
 class GloveTextEmbedding:
@@ -259,13 +260,17 @@ class RelBenchDataLoader:
         """
         loader_dict = {}
         if self.preprocess_graph:
-            self.graph = preprocess_item(self.graph)
+            self.graph = add_centrality_encoding_info(self.graph)
 
         for split, table in self.tables.items():
             table_input = get_node_train_table_input(
                 table=table,
                 task=self.task,
             )
+            transform = table_input.transform
+            if self.preprocess_graph:
+                transform = Compose([transform, preprocess_batch])
+
             self.entity_table = table_input.nodes[0]
             loader_dict[split] = NeighborLoader(
                 self.graph,
@@ -273,7 +278,7 @@ class RelBenchDataLoader:
                 time_attr="time",
                 input_nodes=table_input.nodes,
                 input_time=table_input.time,
-                transform=table_input.transform,
+                transform=transform,
                 batch_size=self.batch_size,
                 temporal_strategy=self.temporal_strategy,
                 shuffle=split == "train",
