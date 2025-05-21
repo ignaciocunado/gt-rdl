@@ -228,7 +228,7 @@ def preprocess_item(item):  # TODO: Figure out edge attributes if we add them an
     N = homo_data.node_type.size(0)
     # adj = torch.zeros([N, N], dtype=torch.bool, device=edge_index.device)
     # adj[edge_index[0, :], edge_index[1, :]] = True
-    attn_bias = torch.zeros([N + 1, N + 1], dtype=torch.float16, device=edge_index.device)  # with graph token
+    # attn_bias = torch.zeros([N + 1, N + 1], dtype=torch.float16, device=edge_index.device)  # with graph token
 
     # # edge feature here
     # if len(edge_attr.size()) == 1:
@@ -265,7 +265,7 @@ def preprocess_item(item):  # TODO: Figure out edge attributes if we add them an
         item[ntype].out_degree = out_deg
 
     # combine
-    item.attn_bias = attn_bias.unsqueeze(0)
+    # item.attn_bias = attn_bias.unsqueeze(0)
     # item.attn_edge_type = attn_edge_type
     # item.spatial_pos = spatial_pos
     # item.edge_input = torch.from_numpy(edge_input).long()

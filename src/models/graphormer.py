@@ -2,6 +2,7 @@ from typing import Dict, Any, Callable, Optional, List, Tuple
 
 import math
 import networkx as nx
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,6 +11,7 @@ from torch.nn import LayerNorm, GELU
 from torch_geometric.data import HeteroData
 from torch_geometric.typing import NodeType
 from torch_geometric.utils import to_networkx, degree
+from .. import algos
 
 from src.models.base_model import BaseModel
 from src.utils import quant_noise, graphormer_softmax, concat_node_features_to_edge, convert_to_single_emb
@@ -47,7 +49,7 @@ class Graphormer(BaseModel):
         attention_dropout = 0.1
         activation_dropout = 0.0
 
-        max_d = 6
+        max_d = 700
         # G = to_networkx(data, to_undirected=False)
         # if len(G) > 1:
         #     max_d = max(max_d, nx.diameter(G))
@@ -131,15 +133,9 @@ class Graphormer(BaseModel):
 
         batch = self.preprocess(batch, x_dict)
 
-        masked_tokens = None
         inner_states, graph_rep = self.graph_encoder(batch, x_dict, perturb=None)
 
         x = inner_states[-1].transpose(0, 1)
-
-        # project masked tokens only
-        if masked_tokens is not None:
-            raise NotImplementedError
-
         x = self.layer_norm(self.activation_fn(self.lm_head_transform_weight(x)))
 
         # project back to size of vocabulary
@@ -165,12 +161,20 @@ class Graphormer(BaseModel):
         adj = torch.zeros([N, N], dtype=torch.bool, device=edge_index.device)
         adj[edge_index[0, :], edge_index[1, :]] = True
 
-        # attn_bias = torch.zeros([N + 1, N + 1], dtype=torch.float, device=edge_index.device)  # with graph token
+
+        shortest_path_result, path = algos.floyd_warshall(adj.numpy())
+        # max_dist = np.amax(shortest_path_result)
+        # edge_input = algos.gen_edge_input(max_dist, path, attn_edge_type.numpy())
+        spatial_pos = torch.from_numpy((shortest_path_result)).long()
+
+        attn_bias = torch.zeros([N + 1, N + 1], dtype=torch.float, device=edge_index.device)  # with graph token
 
         batch.x = batch.x.unsqueeze(0)
         batch.attn_edge_type = attn_edge_type.unsqueeze(0)
-        # batch.attn_bias = attn_bias.unsqueeze(0)
+        batch.attn_bias = attn_bias.unsqueeze(0)
         batch.in_degree = homo.in_degree
+        # batch.edge_input = torch.from_numpy(edge_input).long()
+        batch.spatial_pos = spatial_pos.unsqueeze(0)
         batch.out_degree = homo.out_degree
         return batch
 
@@ -231,7 +235,6 @@ class GraphormerGraphEncoder(nn.Module):
             apply_graphormer_init: bool = False,
             embed_scale: float = None,
             n_trans_layers_to_freeze: int = 0,
-            export: bool = False,
             traceable: bool = False,
             q_noise: float = 0.0,
             qn_block_size: int = 8,
@@ -332,7 +335,7 @@ class GraphormerGraphEncoder(nn.Module):
 
         # x: B x T x C
 
-        attn_bias = self.graph_attn_bias(batch, x_dict)
+        attn_bias = self.graph_attn_bias(batch)
 
         if self.embed_scale is not None:
             x = x * self.embed_scale
@@ -435,7 +438,7 @@ class GraphAttnBias(nn.Module):
 
         self.apply(lambda module: init_params(module, n_layers=n_layers))
 
-    def forward(self, batch, x_dict):
+    def forward(self, batch):
         # attn_bias, spatial_pos, edge_input, attn_edge_type = (
         #     batch["attn_bias"],
         #     batch["spatial_pos"],
@@ -443,10 +446,11 @@ class GraphAttnBias(nn.Module):
         #     batch["attn_edge_type"],
         # )
 
-        attn_bias, edge_input, attn_edge_type, x = (
+        attn_bias, edge_input, attn_edge_type, spatial_pos, x = (
             batch["attn_bias"],
             batch["edge_input"],
             batch["attn_edge_type"],
+            batch["spatial_pos"],
             batch["x"],
         )
 
@@ -456,10 +460,9 @@ class GraphAttnBias(nn.Module):
             1, self.num_heads, 1, 1
         )  # [n_graph, n_head, n_node+1, n_node+1]
 
-        # TODO: spatial pos
         # [n_graph, n_node, n_node, n_head] -> [n_graph, n_head, n_node, n_node]
-        # spatial_pos_bias = self.spatial_pos_encoder(spatial_pos).permute(0, 3, 1, 2)
-        # graph_attn_bias[:, :, 1:, 1:] = graph_attn_bias[:, :, 1:, 1:] + spatial_pos_bias
+        spatial_pos_bias = self.spatial_pos_encoder(spatial_pos).permute(0, 3, 1, 2)
+        graph_attn_bias[:, :, 1:, 1:] = graph_attn_bias[:, :, 1:, 1:] + spatial_pos_bias
 
         # reset spatial pos here
         t = self.graph_token_virtual_distance.weight.view(1, self.num_heads, 1)
@@ -687,9 +690,6 @@ class MultiheadAttention(nn.Module):
         self.reset_parameters()
 
         self.onnx_trace = False
-
-    def prepare_for_onnx_export_(self):
-        raise NotImplementedError
 
     def reset_parameters(self):
         if self.qkv_same_dim:
