@@ -64,6 +64,7 @@ class RelBenchDataLoader:
         reverse_mp (bool, optional): Whether to use reverse message passing. Defaults to False
         add_ports (bool, optional): Whether to use port numbering. Defaults to False
         ego_ids (bool, optional): Whether to add IDs to the centre nodes of the batch. Defaults to False
+        preprocess_graph (bool, optional): Whether to apply Graphormer preprocessing steps the graph. Defaults to False
     """
     def __init__(
         self,
@@ -78,6 +79,7 @@ class RelBenchDataLoader:
         reverse_mp: bool = False,
         add_ports: bool = False,
         ego_ids: bool = False,
+        preprocess_graph: bool = False,
     ):
         self.data_name = data_name
         self.task_name = task_name
@@ -91,6 +93,7 @@ class RelBenchDataLoader:
         self.reverse_mp = reverse_mp
         self.add_ports = add_ports
         self.ego_ids = ego_ids
+        self.preprocess_graph = preprocess_graph
 
         # Load dataset and task
         self.dataset = self._load_dataset()
@@ -255,14 +258,15 @@ class RelBenchDataLoader:
             Dict[str, NeighborLoader]: Dictionary containing data loaders for each split
         """
         loader_dict = {}
-        
+        if self.preprocess_graph:
+            self.graph = preprocess_item(self.graph)
+
         for split, table in self.tables.items():
             table_input = get_node_train_table_input(
                 table=table,
                 task=self.task,
             )
             self.entity_table = table_input.nodes[0]
-            # self.graph = preprocess_item(self.graph)
             loader_dict[split] = NeighborLoader(
                 self.graph,
                 num_neighbors=self.num_neighbors,

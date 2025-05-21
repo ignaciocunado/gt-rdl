@@ -88,6 +88,7 @@ if __name__ == "__main__":
         reverse_mp=config.reverse_mp,
         add_ports=config.port_numbering,
         ego_ids=config.ego_ids,
+        preprocess_graph=args.model=='graphormer',
     )
 
     if data_loader.task.task_type == TaskType.BINARY_CLASSIFICATION:

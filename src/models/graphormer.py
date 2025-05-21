@@ -58,13 +58,9 @@ class Graphormer(BaseModel):
 
         max_in_deg = 0
         max_out_deg = 0
-        for (src_type, rel_type, dst_type), edge_index in data.edge_index_dict.items():
-            src_idx = edge_index[0]
-            dst_idx = edge_index[1]
-            deg_in = degree(dst_idx, num_nodes=data[dst_type].num_nodes, dtype=torch.long)
-            max_in_deg = max(max_in_deg, int(deg_in.max().item()))
-            deg_out = degree(src_idx, num_nodes=data[src_type].num_nodes, dtype=torch.long)
-            max_out_deg = max(max_out_deg, int(deg_out.max().item()))
+        for ntype in data.node_types:
+            max_in_deg = max(max_in_deg, data[ntype].in_degree.max().item())
+            max_out_deg = max(max_out_deg, data[ntype].out_degree.max().item())
 
         self.graph_encoder = GraphormerGraphEncoder(
             # < for graphormer
@@ -155,9 +151,8 @@ class Graphormer(BaseModel):
         return self.embed_out(x_dict[entity_table][: seed_time.size(0)])
 
     def preprocess(self, batch: HeteroData, x_dict: Dict[str, Tensor]) -> HeteroData:
-        batch.x = torch.cat([x_dict[node_type] for node_type in batch.node_types], dim=0) # TODO: Rebuild x-dict again
-
-        homo = batch.to_homogeneous(add_node_type=True, add_edge_type=True)
+        batch.x = torch.cat([x_dict[node_type] for node_type in batch.node_types], dim=0)
+        homo = batch.to_homogeneous(node_attrs=['in_degree', 'out_degree'], add_node_type=True, add_edge_type=True)
         edge_attr, edge_index, rel_ids, x = homo.edge_attr, homo.edge_index, homo.edge_type, batch.x
 
         N = x.size(0)
@@ -170,13 +165,13 @@ class Graphormer(BaseModel):
         adj = torch.zeros([N, N], dtype=torch.bool, device=edge_index.device)
         adj[edge_index[0, :], edge_index[1, :]] = True
 
-        attn_bias = torch.zeros([N + 1, N + 1], dtype=torch.float, device=edge_index.device)  # with graph token
+        # attn_bias = torch.zeros([N + 1, N + 1], dtype=torch.float, device=edge_index.device)  # with graph token
 
         batch.x = batch.x.unsqueeze(0)
         batch.attn_edge_type = attn_edge_type.unsqueeze(0)
-        batch.attn_bias = attn_bias.unsqueeze(0)
-        batch.in_degree = adj.long().sum(dim=1).view(-1)
-        batch.out_degree = batch.in_degree  # for undirected graph
+        # batch.attn_bias = attn_bias.unsqueeze(0)
+        batch.in_degree = homo.in_degree
+        batch.out_degree = homo.out_degree
         return batch
 
     def rebuild_x_dict(self, x, x_dict):

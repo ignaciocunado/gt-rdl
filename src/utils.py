@@ -1,23 +1,20 @@
-from typing import Dict, List, Tuple, Set
-import numpy as np
 import logging
 import os
 import sys
+from collections import defaultdict
 from datetime import datetime
+from typing import List
 
+import numpy as np
+import pyximport
 import torch
-
 from torch import nn
 from torch.nn import functional as F
 from torch_geometric.data import HeteroData
 from torch_geometric.typing import EdgeType
-from collections import defaultdict
-
-import pyximport
-from torch_geometric.utils import get_laplacian
+from torch_geometric.utils import degree
 
 pyximport.install(setup_args={"include_dirs": np.get_include()})
-from . import algos
 
 
 def logger_setup(log_dir: str = "logs"):
@@ -26,14 +23,13 @@ def logger_setup(log_dir: str = "logs"):
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
     logging.basicConfig(
-        level=logging.INFO, 
+        level=logging.INFO,
         format="%(asctime)s [%(levelname)-5.5s] %(message)s",
         handlers=[
-            logging.FileHandler(os.path.join(os.path.join(log_dir, f"run_{timestamp}.log"))),     ## log to local log file
-            logging.StreamHandler(sys.stdout)          ## log also to stdout (i.e., print to screen)
+            logging.FileHandler(os.path.join(os.path.join(log_dir, f"run_{timestamp}.log"))),  ## log to local log file
+            logging.StreamHandler(sys.stdout)  ## log also to stdout (i.e., print to screen)
         ]
     )
-
 
 
 def analyze_multi_edges(data: HeteroData) -> List[EdgeType]:
@@ -49,42 +45,42 @@ def analyze_multi_edges(data: HeteroData) -> List[EdgeType]:
         List[EdgeType]: List of edge types that contain multi-edges
     """
     multi_edge_types = []
-    
+
     for edge_type in data.edge_types:
         edge_index = data[edge_type].edge_index
-        
+
         # Create unique node pairs
         node_pairs = tuple(map(tuple, edge_index.t().tolist()))
         unique_pairs = set(node_pairs)
-        
+
         total_edges = len(node_pairs)
         unique_edges = len(unique_pairs)
-        
+
         if total_edges > unique_edges:
             multi_edge_types.append(edge_type)
-            
+
             # Count frequency of each node pair
             pair_counts = defaultdict(int)
             for pair in node_pairs:
                 pair_counts[pair] += 1
-            
+
             # Find maximum number of edges between any node pair
             max_edges = max(pair_counts.values())
             multi_edge_pairs = sum(1 for count in pair_counts.values() if count > 1)
-            
+
             print(f"\nEdge Type: {edge_type}")
             print(f"Total edges: {total_edges}")
             print(f"Unique node pairs: {unique_edges}")
             print(f"Node pairs with multiple edges: {multi_edge_pairs}")
             print(f"Maximum edges between any node pair: {max_edges}")
-    
+
     if multi_edge_types:
         print("\nEdge types with multi-edges:")
         for edge_type in multi_edge_types:
             print(f"- {edge_type}")
     else:
         print("\nNo multi-edges found in the graph.")
-    
+
     return multi_edge_types
 
 
@@ -92,15 +88,16 @@ def concat_node_features_to_edge(batch, x_dict):
     for edge_type in batch.edge_types:
         src, rel, dst = edge_type
         edge_index = batch[edge_type].edge_index
-        row, col = edge_index   # each of shape [E]
+        row, col = edge_index  # each of shape [E]
 
-        src_feats = x_dict[src][row]   # shape [E, D]
-        dst_feats = x_dict[dst][col]   # shape [E, D]
+        src_feats = x_dict[src][row]  # shape [E, D]
+        dst_feats = x_dict[dst][col]  # shape [E, D]
         new_feat = torch.cat([src_feats, dst_feats], dim=1)
 
         batch[edge_type].edge_attr = new_feat
 
     return batch, x_dict
+
 
 def graphormer_softmax(x, dim: int, onnx_trace: bool = False):
     if onnx_trace:
@@ -208,9 +205,11 @@ def quant_noise(module, p, block_size):
     module.register_forward_pre_hook(_forward_pre_hook)
     return module
 
+
 def safe_hasattr(obj, k):
     """Returns True if the given key exists and is not None."""
     return getattr(obj, k, None) is not None
+
 
 @torch.jit.script
 def convert_to_single_emb(x, offset: int = 512):
@@ -219,14 +218,17 @@ def convert_to_single_emb(x, offset: int = 512):
     x = x + feature_offset
     return x
 
-def preprocess_item(item): #TODO: Figure out edge attributes if we add them and shortest paths
+
+@torch.no_grad()
+def preprocess_item(item):  # TODO: Figure out edge attributes if we add them and positional encodings
+    logging.info("Preprocessing graph...")
     homo_data = item.to_homogeneous(add_node_type=True, add_edge_type=True)
     edge_index = homo_data.edge_index
-    N = homo_data.node_type.size(0)
 
-    # node adj matrix [N, N] bool
-    adj = torch.zeros([N, N], dtype=torch.bool)
-    adj[edge_index[0, :], edge_index[1, :]] = True
+    N = homo_data.node_type.size(0)
+    # adj = torch.zeros([N, N], dtype=torch.bool, device=edge_index.device)
+    # adj[edge_index[0, :], edge_index[1, :]] = True
+    attn_bias = torch.zeros([N + 1, N + 1], dtype=torch.float16, device=edge_index.device)  # with graph token
 
     # # edge feature here
     # if len(edge_attr.size()) == 1:
@@ -242,15 +244,35 @@ def preprocess_item(item): #TODO: Figure out edge attributes if we add them and 
     # max_dist = np.amax(shortest_path_result)
     # edge_input = algos.gen_edge_input(max_dist, path, attn_edge_type.numpy())
     # spatial_pos = torch.from_numpy((shortest_path_result)).long()
-    attn_bias = torch.zeros([N + 1, N + 1], dtype=torch.float)  # with graph token
+
+    for ntype in item.node_types:
+        num_nodes = item[ntype].num_nodes
+        device = edge_index.device
+        in_deg = torch.zeros(num_nodes, dtype=torch.long, device=device)
+        out_deg = torch.zeros_like(in_deg)
+
+        for edge_type in item.edge_types:
+            src_type, rel, dst_type = edge_type
+
+            ei = item[edge_type].edge_index
+            if dst_type == ntype:
+                in_deg += degree(ei[1], num_nodes=num_nodes, dtype=torch.long)
+            if src_type == ntype:
+                out_deg += degree(ei[0], num_nodes=num_nodes, dtype=torch.long)
+
+        # attach as *node-level* attributes
+        item[ntype].in_degree = in_deg
+        item[ntype].out_degree = out_deg
 
     # combine
-    item.attn_bias = attn_bias
+    item.attn_bias = attn_bias.unsqueeze(0)
     # item.attn_edge_type = attn_edge_type
     # item.spatial_pos = spatial_pos
-    item.in_degree = adj.long().sum(dim=1).view(-1)
-    item.out_degree = item.in_degree  # for undirected graph
     # item.edge_input = torch.from_numpy(edge_input).long()
 
-    return item
+    if (torch.device("cuda") == edge_index.device):
+        torch.cuda.empty_cache()
 
+    logging.info("Preprocessing finished")
+
+    return item
