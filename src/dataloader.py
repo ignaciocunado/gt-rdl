@@ -267,9 +267,14 @@ class RelBenchDataLoader:
                 table=table,
                 task=self.task,
             )
-            transform = table_input.transform
+            base_t = table_input.transform
+            tf_list = []
+            if base_t is not None:
+                tf_list.append(base_t)
             if self.preprocess_graph:
-                transform = Compose([transform, preprocess_batch])
+                tf_list.append(preprocess_batch)
+
+            transform = Compose(tf_list) if tf_list else None
 
             self.entity_table = table_input.nodes[0]
             loader_dict[split] = NeighborLoader(
