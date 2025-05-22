@@ -1,27 +1,19 @@
 method: bayes
 metric:
   goal: maximize
-  name: val_metrics.roc_auc
+  name: best_test_metric
 parameters:
   aggr:
-    distribution: categorical
-    values:
-      - sum
+    value: sum
   head:
-    distribution: categorical
-    values:
-      - HeteroGNNNodeHead
+    value: HeteroGNNNodeHead
   batch_size:
     distribution: categorical
     values:
+      - 16
       - 32
       - 64
       - 128
-      - 256
-      - 512
-      - 1024
-      - 2048
-      - 5096
   channels:
     distribution: categorical
     values:
@@ -30,22 +22,15 @@ parameters:
       - 128
       - 256
   early_stopping:
-    distribution: categorical
-    values:
-      - true
-      - false
+    value: true
   ego_ids:
-    distribution: categorical
-    values:
-      - false
+    value: false
   epochs:
     distribution: int_uniform
-    max: 20
-    min: 10
+    max: 15
+    min: 5
   evaluation_freq:
-    distribution: int_uniform
-    max: 2
-    min: 1
+    value: 1
   learning_rate:
     distribution: categorical
     values:
@@ -72,54 +57,57 @@ parameters:
       - 3500
       - 4000
   norm:
-    distribution: categorical
-    values:
-      - batch_norm
+    value: batch_norm
   num_layers:
     distribution: int_uniform
-    max: 4
+    max: 3
     min: 1
   num_layers_pre_gt:
-    distribution: int_uniform
-    max: 2
-    min: 0
+    value: 0
   patience:
     distribution: int_uniform
-    max: 10
+    max: 5
     min: 3
   num_neighbors:
     distribution: int_uniform
     max: 200
     min: 25
   port_numbering:
-    distribution: categorical
-    values:
-      - false # Does not work as of now
+    value: false # Does not work as of now
   reverse_mp:
+    value: true
+  local_dropout:
     distribution: categorical
     values:
-      - true
-      - false
-  local_dropout:
-    distribution: uniform
-    min: 0.0
-    max: 0.5
+      - 0.0
+      - 0.1
+      - 0.2
+      - 0.3
+      - 0.4
+      - 0.5
   global_dropout:
-    distribution: uniform
-    min: 0.0
-    max: 0.5
+    distribution: categorical
+    values:
+      - 0.0
+      - 0.1
+      - 0.2
+      - 0.3
+      - 0.4
+      - 0.5
   attention_dropout:
-    distribution: uniform
-    min: 0.0
-    max: 0.5
+    distribution: categorical
+    values:
+      - 0.0
+      - 0.1
+      - 0.2
+      - 0.3
+      - 0.4
+      - 0.5
   optimiser:
     distribution: categorical
     values:
       - adam
       - adamW
   edge_features:
-    distribution: categorical
-    values:
-      - true
-      - false
+    value: true
 program: sweep.py
