@@ -406,13 +406,14 @@ class GraphAttnBias(nn.Module):
         #     batch["attn_edge_type"],
         # )
 
-        attn_bias, edge_input, attn_edge_type, spatial_pos, x = (
+        attn_bias, edge_input, attn_edge_type, x = (
             batch["attn_bias"],
             batch["edge_input"],
             batch["attn_edge_type"],
-            batch["spatial_pos"],
             batch["x"],
         )
+
+        # spatial_pos = batch["spatial_pos]
 
         n_graph, n_node = x.size()[:2]
         graph_attn_bias = attn_bias.clone()
@@ -421,8 +422,8 @@ class GraphAttnBias(nn.Module):
         )  # [n_graph, n_head, n_node+1, n_node+1]
 
         # [n_graph, n_node, n_node, n_head] -> [n_graph, n_head, n_node, n_node]
-        spatial_pos_bias = self.spatial_pos_encoder(spatial_pos).permute(0, 3, 1, 2)
-        graph_attn_bias[:, :, 1:, 1:] = graph_attn_bias[:, :, 1:, 1:] + spatial_pos_bias
+        # spatial_pos_bias = self.spatial_pos_encoder(spatial_pos).permute(0, 3, 1, 2)
+        # graph_attn_bias[:, :, 1:, 1:] = graph_attn_bias[:, :, 1:, 1:] + spatial_pos_bias
 
         # reset spatial pos here
         t = self.graph_token_virtual_distance.weight.view(1, self.num_heads, 1)

@@ -12,7 +12,9 @@ from torch import nn
 from torch.nn import functional as F
 from torch_geometric.data import HeteroData
 from torch_geometric.typing import EdgeType
-from torch_geometric.utils import degree
+from torch_geometric.utils import degree, to_scipy_sparse_matrix
+import scipy.sparse as sp
+
 pyximport.install(setup_args={"include_dirs": np.get_include()})
 from . import algos
 
@@ -239,6 +241,31 @@ def add_centrality_encoding_info(item, device):
         # attach as *node-level* attributes
         item[ntype].in_degree = in_deg
         item[ntype].out_degree = out_deg
+    #
+    # data = item.to_homogeneous(node_attrs=['in_degree', 'out_degree'], add_node_type=True, add_edge_type=True)
+    # num_nodes = data.num_nodes
+    # edge_index = data.edge_index
+    #
+    # A = to_scipy_sparse_matrix(edge_index, num_nodes=num_nodes)
+    # deg = np.array(A.sum(axis=1)).flatten()
+    # inv_deg = 1.0 / deg
+    # inv_deg[np.isinf(inv_deg)] = 0.0
+    # D_inv = sp.diags(inv_deg)
+    # P = D_inv.dot(A).tocsr()
+    #
+    # # Preallocate RWSE storage
+    # K=20
+    # rwse = np.zeros((num_nodes, K), dtype=np.float32)
+    # P_power = P.copy()
+    #
+    # for k in range(K):
+    #     # diagonal entries = return probabilities at step (k+1)
+    #     rwse[:, k] = P_power.diagonal()
+    #     # next power
+    #     P_power = P_power.dot(P)
+    #
+    # # Attach to data
+    # item.rwse = torch.from_numpy(rwse).to(device)          # [N, K]
 
     return item
 
@@ -252,18 +279,18 @@ def preprocess_batch(batch):
     attn_edge_type[edge_index[0], edge_index[1]] = rel_ids + 1
 
     N = homo.node_type.size(0)
-    adj = torch.zeros([N, N], dtype=torch.bool)
-    adj[edge_index[0, :], edge_index[1, :]] = True
+    # adj = torch.zeros([N, N], dtype=torch.bool)
+    # adj[edge_index[0, :], edge_index[1, :]] = True
 
 
-    shortest_path_result, path = algos.floyd_warshall(adj.numpy())
-    spatial_pos = torch.from_numpy(shortest_path_result).long().to(edge_index.device)
+    # shortest_path_result, path = algos.floyd_warshall(adj.numpy())
+    # spatial_pos = torch.from_numpy(shortest_path_result).long().to(edge_index.device)
 
     attn_bias = torch.zeros([N + 1, N + 1], dtype=torch.float, device=edge_index.device)  # with graph token
 
     batch.attn_edge_type = attn_edge_type.unsqueeze(0)
     batch.attn_bias = attn_bias.unsqueeze(0)
     batch.in_degree = homo.in_degree
-    batch.spatial_pos = spatial_pos.unsqueeze(0)
+    # batch.spatial_pos = spatial_pos.unsqueeze(0)
     batch.out_degree = homo.out_degree
     return batch
