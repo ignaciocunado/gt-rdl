@@ -18,5 +18,5 @@ module use /opt/insy/modulefiles
 module load cuda/11.8
 
 # Run script
-srun apptainer exec --nv --env-file .env -B /tudelft.net/staff-umbrella/CSE3000GLTD/ignacio/relbench-ignacio $APPTAINER_IMAGE python main.py --model graphormer --save_artifacts --num_workers 12 --dataset avito --task ad-ctr --eval_freq 4 --batch_size 64 --epochs 15 --channels 64 --num_neighbors 50 50 --rev_mp --edge_features --dropouts 0.1 0.1 0.1
+srun apptainer exec --nv --env-file .env -B /tudelft.net/staff-umbrella/CSE3000GLTD/ignacio/relbench-ignacio $APPTAINER_IMAGE python main.py --model graphormer --save_artifacts --num_workers 12 --dataset avito --task ad-ctr --eval_freq 4 --batch_size 64 --epochs 15 --channels 64 --num_neighbors 50 50 --rev_mp --edge_features --dropouts 0.1 0.1 0.1 --head HeteroGNNNodeRegressionHead
 
