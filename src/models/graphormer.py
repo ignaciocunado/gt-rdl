@@ -5,11 +5,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.nn import LayerNorm, GELU
+from torch.nn import LayerNorm, GELU, Linear
 from torch_geometric.data import HeteroData
 from torch_geometric.typing import NodeType
 
+from src.heads import HeteroGNNNodeRegressionHead
 from src.models.base_model import BaseModel
+from src.models.fraudgt import HeteroGNNNodeHead
 from src.utils import quant_noise, graphormer_softmax, concat_node_features_to_edge
 
 
@@ -22,6 +24,7 @@ class Graphormer(BaseModel):
             out_channels: int,
             dropouts: list,
             num_layers: int = 2,
+            head: str = 'None',
             edge_featuers: bool = False,
             torch_frame_model_kwargs: Dict[str, Any] = {},
     ):
@@ -89,7 +92,6 @@ class Graphormer(BaseModel):
 
         self.load_softmax = True
 
-        self.masked_lm_pooler = nn.Linear(embedding_dim, embedding_dim)
         self.lm_head_transform_weight = nn.Linear(embedding_dim, embedding_dim)
         self.activation_fn = nn.GELU()
         self.layer_norm = LayerNorm(embedding_dim)
@@ -100,7 +102,15 @@ class Graphormer(BaseModel):
             self.lm_output_learned_bias = nn.Parameter(torch.zeros(1))
 
             if not self.share_input_output_embed:
-                self.embed_out = nn.Linear(embedding_dim, out_channels, bias=True)
+                if head == 'HeteroGNNNodeHead':
+                    self.embed_out = HeteroGNNNodeHead(embedding_dim, out_channels)
+                elif head == 'HeteroGNNNodeRegressionHead':
+                    self.embed_out = HeteroGNNNodeRegressionHead(embedding_dim, out_channels)
+                elif head == 'Linear':
+                    self.embed_out = Linear(embedding_dim, out_channels)
+                else:
+                    raise ValueError(f'Attention head {head} not supported.')
+                # self.embed_out = nn.Linear(embedding_dim, out_channels, bias=True)
             else:
                 raise NotImplementedError
 
@@ -131,7 +141,8 @@ class Graphormer(BaseModel):
         if self.share_input_output_embed and hasattr(self.graph_encoder.embed_tokens, "weight"):
             x = F.linear(x, self.graph_encoder.embed_tokens.weight)
 
-        x_dict = self.rebuild_x_dict(x, x_dict)
+        x_nodes = x[:, 1:, :]
+        x_dict = self.rebuild_x_dict(x_nodes, x_dict)
 
         return self.embed_out(x_dict[entity_table][: seed_time.size(0)])
 
@@ -281,7 +292,11 @@ class GraphormerGraphEncoder(nn.Module):
         # compute padding mask. This is needed for multi-head attention
         data_x = batch["x"]
         n_graph, n_node = data_x.size()[:2]
-        padding_mask = None
+        padding_mask = (data_x[:, :, 0]).eq(0)  # B x T x 1
+        padding_mask_cls = torch.zeros(
+            n_graph, 1, device=padding_mask.device, dtype=padding_mask.dtype
+        )
+        padding_mask = torch.cat((padding_mask_cls, padding_mask), dim=1)
         # B x (T+1) x 1
 
         if token_embeddings is not None:
