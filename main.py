@@ -24,9 +24,10 @@ from relbench.base import TaskType
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, help="The model to use (local vs global)", required=True)
-    parser.add_argument("--save_artifacts", action='store_true', help="Whether to save artifacts")
     parser.add_argument("--dataset", type=str, help="The dataset to use", required=True)
     parser.add_argument("--task", type=str, help="The task to solve", required=True)
+    parser.add_argument("--save_artifacts", action='store_true', help="Whether to save artifacts")
+    parser.add_argument("--num_workers", type=int, default=8, help="How many workers to use for data loading. Default: 8.")
     parser.add_argument("--eval_freq", type=int, default=2, help="Evaluate every x epochs")
     parser.add_argument("--lr", type=float, default=0.005, help="Learning rate")
     parser.add_argument("--epochs", type=int, default=10, help="Number of epochs")
@@ -83,7 +84,7 @@ if __name__ == "__main__":
         root_dir=config.data_dir,
         batch_size=config.batch_size,
         num_neighbors=config.num_neighbors,
-        num_workers=6,
+        num_workers=config.num_workers,
         temporal_strategy=config.temporal_strategy,
         reverse_mp=config.reverse_mp,
         add_ports=config.port_numbering,
@@ -112,6 +113,7 @@ if __name__ == "__main__":
             channels=config.channels,
             out_channels=config.out_channels,
             dropouts=config.dropouts,
+            head=config.head,
             edge_featuers=config.edge_features,
             torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
         ).to(config.device)
