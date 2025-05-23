@@ -4,7 +4,7 @@
 #SBATCH --qos=short                # short (4h max), medium (1.5 dys max) or long (7 days max)
 #SBATCH --time=00:15:00            # Request run time (wall-clock). Default is 1 minute
 #SBATCH --tasks-per-node=1         # Set one task per node
-#SBATCH --cpus-per-task=4          # Request number of CPUs (threads) per task.
+#SBATCH --cpus-per-task=14          # Request number of CPUs (threads) per task.
 #SBATCH --gres=gpu:a40:1               # Request 1 GPU
 #SBATCH --mem=64GB                  # Request 4 GB of RAM in total
 #SBATCH --mail-type=BEGIN,END,FAIL            # Set mail type to 'END' to receive a mail when the job finishes.
