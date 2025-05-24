@@ -1,4 +1,8 @@
 import argparse
+import random
+
+import numpy as np
+import torch
 
 import wandb
 import os
@@ -20,6 +24,11 @@ from torch.nn import L1Loss, BCELoss, BCEWithLogitsLoss
 import logging
 
 from relbench.base import TaskType
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -46,8 +55,10 @@ if __name__ == "__main__":
     parser.add_argument("--dropouts", type=float, nargs='*', help="Local, global and attention dropout rates")
     parser.add_argument("--head", type=str, default="HeteroGNNNodeHead", help="Attention Head for the transformer")
     parser.add_argument("--early_stopping", action='store_true', help="Use early stopping")
-
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
     args = parser.parse_args()
+
+    set_seed(args.seed)
 
     # Override default configuration
     config = CustomConfig(
