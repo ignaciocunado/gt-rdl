@@ -2,6 +2,9 @@ import yaml
 
 import wandb
 import os
+
+from src.models.graphormer import Graphormer
+
 os.environ['XDG_CACHE_HOME'] = '/tudelft.net/staff-umbrella/CSE3000GLTD/ignacio/relbench-ignacio/data'
 
 from src.models.fraudgt import FraudGT
@@ -53,7 +56,7 @@ def outside_train():
             root_dir=config.data_dir,
             batch_size=config.batch_size,
             num_neighbors=config.num_neighbors,
-            num_workers=6,
+            num_workers=10,
             temporal_strategy=config.temporal_strategy,
             reverse_mp=config.reverse_mp,
             add_ports=config.port_numbering,
@@ -73,18 +76,9 @@ def outside_train():
         logging.info(f"\nFound {len(multi_edge_types)} edge types with multi-edges")
 
 
-        model = FraudGT(
-            data=data_loader.graph,
-            col_stats_dict=data_loader.col_stats_dict,
-            channels=config.channels,
-            out_channels=config.out_channels,
-            dropouts=config.dropouts,
-            num_layers=config.num_layers,
-            num_layers_pre_gt=config.num_layers_pre_gt,
-            head=config.head,
-            edge_features=config.edge_features,
-            torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
-        ).to(config.device)
+        model = FraudGT(data=data_loader.graph, col_stats_dict=data_loader.col_stats_dict, channels=config.channels, out_channels=config.out_channels, dropouts=config.dropouts, num_layers=config.num_layers, num_layers_pre_gt=config.num_layers_pre_gt, head=config.head, edge_features=config.edge_features, torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers}).to(config.device)
+
+        model = Graphormer(data=data_loader.graph, col_stats_dict=data_loader.col_stats_dict, channels=config.channels, out_channels=config.out_channels,dropouts=config.dropouts,head=config.head,edge_featuers=config.edge_features,torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers}).to(config.device)
 
         logging.info(f"Model: {model}")
 

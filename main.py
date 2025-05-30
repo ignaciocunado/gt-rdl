@@ -1,4 +1,8 @@
 import argparse
+import random
+
+import numpy as np
+import torch
 
 import wandb
 import os
@@ -21,12 +25,18 @@ import logging
 
 from relbench.base import TaskType
 
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, help="The model to use (local vs global)", required=True)
-    parser.add_argument("--save_artifacts", action='store_true', help="Whether to save artifacts")
     parser.add_argument("--dataset", type=str, help="The dataset to use", required=True)
     parser.add_argument("--task", type=str, help="The task to solve", required=True)
+    parser.add_argument("--save_artifacts", action='store_true', help="Whether to save artifacts")
+    parser.add_argument("--num_workers", type=int, default=8, help="How many workers to use for data loading. Default: 8.")
     parser.add_argument("--eval_freq", type=int, default=2, help="Evaluate every x epochs")
     parser.add_argument("--lr", type=float, default=0.005, help="Learning rate")
     parser.add_argument("--epochs", type=int, default=10, help="Number of epochs")
@@ -45,8 +55,10 @@ if __name__ == "__main__":
     parser.add_argument("--dropouts", type=float, nargs='*', help="Local, global and attention dropout rates")
     parser.add_argument("--head", type=str, default="HeteroGNNNodeHead", help="Attention Head for the transformer")
     parser.add_argument("--early_stopping", action='store_true', help="Use early stopping")
-
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
     args = parser.parse_args()
+
+    set_seed(args.seed)
 
     # Override default configuration
     config = CustomConfig(
@@ -83,11 +95,12 @@ if __name__ == "__main__":
         root_dir=config.data_dir,
         batch_size=config.batch_size,
         num_neighbors=config.num_neighbors,
-        num_workers=6,
+        num_workers=config.num_workers,
         temporal_strategy=config.temporal_strategy,
         reverse_mp=config.reverse_mp,
         add_ports=config.port_numbering,
         ego_ids=config.ego_ids,
+        preprocess_graph=args.model=='graphormer',
     )
 
     if data_loader.task.task_type == TaskType.BINARY_CLASSIFICATION:
@@ -110,6 +123,8 @@ if __name__ == "__main__":
             col_stats_dict=data_loader.col_stats_dict,
             channels=config.channels,
             out_channels=config.out_channels,
+            dropouts=config.dropouts,
+            head=config.head,
             edge_featuers=config.edge_features,
             torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
         ).to(config.device)
@@ -150,6 +165,8 @@ if __name__ == "__main__":
         ).to(config.device)
 
     logging.info(f"Model: {model}")
+    total_params = sum(p.numel() for p in model.parameters())
+    logging.info(f"Total model parameters: {total_params}")
 
     # Initialize optimizer and loss function
     optimiser = None

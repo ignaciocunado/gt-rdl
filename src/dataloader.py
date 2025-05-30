@@ -1,9 +1,9 @@
-import json
 import os
+
 
 import numpy as np
 import torch
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any
 
 from torch_frame.data import StatType
 from torch_frame._stype import stype
@@ -15,8 +15,9 @@ from relbench.modeling.graph import make_pkey_fkey_graph, get_node_train_table_i
 from relbench.modeling.utils import get_stype_proposal
 from relbench.datasets import get_dataset
 from relbench.tasks import get_task
+from torch_geometric.transforms import Compose
 
-from src.utils import preprocess_item
+from src.utils import preprocess_batch, add_centrality_encoding_info
 
 
 class GloveTextEmbedding:
@@ -64,6 +65,7 @@ class RelBenchDataLoader:
         reverse_mp (bool, optional): Whether to use reverse message passing. Defaults to False
         add_ports (bool, optional): Whether to use port numbering. Defaults to False
         ego_ids (bool, optional): Whether to add IDs to the centre nodes of the batch. Defaults to False
+        preprocess_graph (bool, optional): Whether to apply Graphormer preprocessing steps the graph. Defaults to False
     """
     def __init__(
         self,
@@ -78,6 +80,7 @@ class RelBenchDataLoader:
         reverse_mp: bool = False,
         add_ports: bool = False,
         ego_ids: bool = False,
+        preprocess_graph: bool = False,
     ):
         self.data_name = data_name
         self.task_name = task_name
@@ -91,6 +94,7 @@ class RelBenchDataLoader:
         self.reverse_mp = reverse_mp
         self.add_ports = add_ports
         self.ego_ids = ego_ids
+        self.preprocess_graph = preprocess_graph
 
         # Load dataset and task
         self.dataset = self._load_dataset()
@@ -255,21 +259,31 @@ class RelBenchDataLoader:
             Dict[str, NeighborLoader]: Dictionary containing data loaders for each split
         """
         loader_dict = {}
-        
+        if self.preprocess_graph:
+            self.graph = add_centrality_encoding_info(self.graph, self.device)
+
         for split, table in self.tables.items():
             table_input = get_node_train_table_input(
                 table=table,
                 task=self.task,
             )
+            base_t = table_input.transform
+            tf_list = []
+            if base_t is not None:
+                tf_list.append(base_t)
+            if self.preprocess_graph:
+                tf_list.append(preprocess_batch)
+
+            transform = Compose(tf_list) if tf_list else None
+
             self.entity_table = table_input.nodes[0]
-            # self.graph = preprocess_item(self.graph)
             loader_dict[split] = NeighborLoader(
                 self.graph,
                 num_neighbors=self.num_neighbors,
                 time_attr="time",
                 input_nodes=table_input.nodes,
                 input_time=table_input.time,
-                transform=table_input.transform,
+                transform=transform,
                 batch_size=self.batch_size,
                 temporal_strategy=self.temporal_strategy,
                 shuffle=split == "train",

@@ -1,18 +1,15 @@
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Tuple
 import torch
 import copy
-import math
 from tqdm import tqdm
 from torch.optim import Optimizer
 from torch.nn import Module
 from torch_geometric.loader import NeighborLoader
 import numpy as np
-from dataclasses import dataclass
 from .config import CustomConfig
 import logging
 from relbench.base import TaskType
 import os
-from datetime import datetime
 import wandb
 
 
@@ -165,7 +162,7 @@ def train(
                 wandb.log({
                     "epoch": epoch,
                     "best_val_metric": best_val_metric,
-                    "best_test_metric": test_metrics[config.tune_metric],
+                    "best_test_metric": best_test_metric,
                 })
                 state_dict = copy.deepcopy(model.state_dict())
                 best_metrics = val_metrics

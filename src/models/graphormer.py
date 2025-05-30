@@ -1,29 +1,30 @@
 from typing import Dict, Any, Callable, Optional, List, Tuple
 
 import math
-import networkx as nx
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.nn import LayerNorm, GELU
+from torch.nn import LayerNorm, GELU, Linear
 from torch_geometric.data import HeteroData
 from torch_geometric.typing import NodeType
-from torch_geometric.utils import to_networkx, degree
 
+from src.heads import HeteroGNNNodeRegressionHead
 from src.models.base_model import BaseModel
-from src.utils import quant_noise, graphormer_softmax, concat_node_features_to_edge, convert_to_single_emb
+from src.models.fraudgt import HeteroGNNNodeHead
+from src.utils import quant_noise, graphormer_softmax, concat_node_features_to_edge
 
 
 class Graphormer(BaseModel):
-
     def __init__(
             self,
             data: HeteroData,
             col_stats_dict: Dict,
             channels: int,
             out_channels: int,
+            dropouts: list,
             num_layers: int = 2,
+            head: str = 'None',
             edge_featuers: bool = False,
             torch_frame_model_kwargs: Dict[str, Any] = {},
     ):
@@ -43,14 +44,11 @@ class Graphormer(BaseModel):
         apply_graphormer_init = True
         share_encoder_input_output_embed = False
         pre_layernorm = False
-        dropout = 0.1
-        attention_dropout = 0.1
-        activation_dropout = 0.0
+        dropout = dropouts[0]
+        attention_dropout = dropouts[1]
+        activation_dropout = dropouts[2]
 
-        max_d = 6
-        # G = to_networkx(data, to_undirected=False)
-        # if len(G) > 1:
-        #     max_d = max(max_d, nx.diameter(G))
+        max_d = 700 # TODO: What value do we want? Can cause errors
         num_spatial = (max_d + 1) + 1
 
         num_edge_dis = 128
@@ -58,13 +56,9 @@ class Graphormer(BaseModel):
 
         max_in_deg = 0
         max_out_deg = 0
-        for (src_type, rel_type, dst_type), edge_index in data.edge_index_dict.items():
-            src_idx = edge_index[0]
-            dst_idx = edge_index[1]
-            deg_in = degree(dst_idx, num_nodes=data[dst_type].num_nodes, dtype=torch.long)
-            max_in_deg = max(max_in_deg, int(deg_in.max().item()))
-            deg_out = degree(src_idx, num_nodes=data[src_type].num_nodes, dtype=torch.long)
-            max_out_deg = max(max_out_deg, int(deg_out.max().item()))
+        for ntype in data.node_types:
+            max_in_deg = max(max_in_deg, data[ntype].in_degree.max().item())
+            max_out_deg = max(max_out_deg, data[ntype].out_degree.max().item())
 
         self.graph_encoder = GraphormerGraphEncoder(
             # < for graphormer
@@ -98,7 +92,6 @@ class Graphormer(BaseModel):
 
         self.load_softmax = True
 
-        self.masked_lm_pooler = nn.Linear(embedding_dim, embedding_dim)
         self.lm_head_transform_weight = nn.Linear(embedding_dim, embedding_dim)
         self.activation_fn = nn.GELU()
         self.layer_norm = LayerNorm(embedding_dim)
@@ -109,7 +102,15 @@ class Graphormer(BaseModel):
             self.lm_output_learned_bias = nn.Parameter(torch.zeros(1))
 
             if not self.share_input_output_embed:
-                self.embed_out = nn.Linear(embedding_dim, out_channels, bias=True)
+                if head == 'HeteroGNNNodeHead':
+                    self.embed_out = HeteroGNNNodeHead(embedding_dim, out_channels)
+                elif head == 'HeteroGNNNodeRegressionHead':
+                    self.embed_out = HeteroGNNNodeRegressionHead(embedding_dim, out_channels)
+                elif head == 'Linear':
+                    self.embed_out = Linear(embedding_dim, out_channels)
+                else:
+                    raise ValueError(f'Attention head {head} not supported.')
+                # self.embed_out = nn.Linear(embedding_dim, out_channels, bias=True)
             else:
                 raise NotImplementedError
 
@@ -125,58 +126,30 @@ class Graphormer(BaseModel):
                     del state_dict[k]
         return state_dict
 
-    # def max_nodes(self):
-    #     """Maximum output length supported by the encoder."""
-    #     return self.max_nodes
-
     def post_forward(self, x_dict: Dict[str, Tensor], batch: HeteroData, entity_table: NodeType, seed_time: Tensor):
         if self.edge_features:
             batch, x_dict = concat_node_features_to_edge(batch, x_dict)
 
-        batch = self.preprocess(batch, x_dict)
+        batch = self.concat_x_dict(batch, x_dict)
 
-        masked_tokens = None
-        inner_states, graph_rep = self.graph_encoder(batch, x_dict, perturb=None)
+        inner_states, graph_rep = self.graph_encoder(batch, perturb=None)
 
         x = inner_states[-1].transpose(0, 1)
-
-        # project masked tokens only
-        if masked_tokens is not None:
-            raise NotImplementedError
-
         x = self.layer_norm(self.activation_fn(self.lm_head_transform_weight(x)))
 
         # project back to size of vocabulary
         if self.share_input_output_embed and hasattr(self.graph_encoder.embed_tokens, "weight"):
             x = F.linear(x, self.graph_encoder.embed_tokens.weight)
 
-        x_dict = self.rebuild_x_dict(x, x_dict)
+        x_nodes = x[:, 1:, :]
+        x_dict = self.rebuild_x_dict(x_nodes, x_dict)
 
         return self.embed_out(x_dict[entity_table][: seed_time.size(0)])
 
-    def preprocess(self, batch: HeteroData, x_dict: Dict[str, Tensor]) -> HeteroData:
-        batch.x = torch.cat([x_dict[node_type] for node_type in batch.node_types], dim=0) # TODO: Rebuild x-dict again
-
-        homo = batch.to_homogeneous(add_node_type=True, add_edge_type=True)
-        edge_attr, edge_index, rel_ids, x = homo.edge_attr, homo.edge_index, homo.edge_type, batch.x
-
-        N = x.size(0)
-        if len(edge_attr.size()) == 1:
-            edge_attr = edge_attr[:, None]
-        attn_edge_type = torch.zeros([N, N], dtype=torch.long, device=edge_index.device)
-        attn_edge_type[edge_index[0], edge_index[1]] = rel_ids + 1
-
-        N = homo.node_type.size(0)
-        adj = torch.zeros([N, N], dtype=torch.bool, device=edge_index.device)
-        adj[edge_index[0, :], edge_index[1, :]] = True
-
-        attn_bias = torch.zeros([N + 1, N + 1], dtype=torch.float, device=edge_index.device)  # with graph token
-
+    def concat_x_dict(self, batch: HeteroData, x_dict: Dict[str, Tensor]) -> HeteroData:
+        device = x_dict[next(iter(x_dict))].device
+        batch.x = torch.cat([x_dict[node_type] for node_type in batch.node_types], dim=0).to(device)
         batch.x = batch.x.unsqueeze(0)
-        batch.attn_edge_type = attn_edge_type.unsqueeze(0)
-        batch.attn_bias = attn_bias.unsqueeze(0)
-        batch.in_degree = adj.long().sum(dim=1).view(-1)
-        batch.out_degree = batch.in_degree  # for undirected graph
         return batch
 
     def rebuild_x_dict(self, x, x_dict):
@@ -192,10 +165,8 @@ def init_graphormer_params(module):
     """
     Initialize the weights specific to the Graphormer Model.
     """
-
     def normal_(data):
-        # with FSDP, module params will be on CUDA, so we cast them back to CPU
-        # so that the RNG is consistent with and without FSDP
+        # with FSDP, module params will be on CUDA, so we cast them back to CPU so that the RNG is consistent with and without FSDP
         data.copy_(data.cpu().normal_(mean=0.0, std=0.02).to(data.device))
 
     if isinstance(module, nn.Linear):
@@ -236,7 +207,6 @@ class GraphormerGraphEncoder(nn.Module):
             apply_graphormer_init: bool = False,
             embed_scale: float = None,
             n_trans_layers_to_freeze: int = 0,
-            export: bool = False,
             traceable: bool = False,
             q_noise: float = 0.0,
             qn_block_size: int = 8,
@@ -314,7 +284,6 @@ class GraphormerGraphEncoder(nn.Module):
     def forward(
             self,
             batch,
-            x_dict,
             perturb=None,
             last_state_only: bool = False,
             token_embeddings: Optional[torch.Tensor] = None,
@@ -323,7 +292,11 @@ class GraphormerGraphEncoder(nn.Module):
         # compute padding mask. This is needed for multi-head attention
         data_x = batch["x"]
         n_graph, n_node = data_x.size()[:2]
-        padding_mask = None
+        padding_mask = (data_x[:, :, 0]).eq(0)  # B x T x 1
+        padding_mask_cls = torch.zeros(
+            n_graph, 1, device=padding_mask.device, dtype=padding_mask.dtype
+        )
+        padding_mask = torch.cat((padding_mask_cls, padding_mask), dim=1)
         # B x (T+1) x 1
 
         if token_embeddings is not None:
@@ -337,7 +310,7 @@ class GraphormerGraphEncoder(nn.Module):
 
         # x: B x T x C
 
-        attn_bias = self.graph_attn_bias(batch, x_dict)
+        attn_bias = self.graph_attn_bias(batch)
 
         if self.embed_scale is not None:
             x = x * self.embed_scale
@@ -440,7 +413,7 @@ class GraphAttnBias(nn.Module):
 
         self.apply(lambda module: init_params(module, n_layers=n_layers))
 
-    def forward(self, batch, x_dict):
+    def forward(self, batch):
         # attn_bias, spatial_pos, edge_input, attn_edge_type = (
         #     batch["attn_bias"],
         #     batch["spatial_pos"],
@@ -455,13 +428,14 @@ class GraphAttnBias(nn.Module):
             batch["x"],
         )
 
+        # spatial_pos = batch["spatial_pos]
+
         n_graph, n_node = x.size()[:2]
         graph_attn_bias = attn_bias.clone()
         graph_attn_bias = graph_attn_bias.unsqueeze(1).repeat(
             1, self.num_heads, 1, 1
         )  # [n_graph, n_head, n_node+1, n_node+1]
 
-        # TODO: spatial pos
         # [n_graph, n_node, n_node, n_head] -> [n_graph, n_head, n_node, n_node]
         # spatial_pos_bias = self.spatial_pos_encoder(spatial_pos).permute(0, 3, 1, 2)
         # graph_attn_bias[:, :, 1:, 1:] = graph_attn_bias[:, :, 1:, 1:] + spatial_pos_bias
@@ -642,7 +616,8 @@ def init_params(module, n_layers):
         module.weight.data.normal_(mean=0.0, std=0.02)
 
 class MultiheadAttention(nn.Module):
-    """Multi-headed attention.
+    """
+    Multi-headed attention.
 
     See "Attention Is All You Need" for more details.
     """
@@ -693,13 +668,9 @@ class MultiheadAttention(nn.Module):
 
         self.onnx_trace = False
 
-    def prepare_for_onnx_export_(self):
-        raise NotImplementedError
-
     def reset_parameters(self):
         if self.qkv_same_dim:
-            # Empirically observed the convergence to be much better with
-            # the scaled initialization
+            # Empirically observed the convergence to be much better with the scaled initialization
             nn.init.xavier_uniform_(self.k_proj.weight, gain=1 / math.sqrt(2))
             nn.init.xavier_uniform_(self.v_proj.weight, gain=1 / math.sqrt(2))
             nn.init.xavier_uniform_(self.q_proj.weight, gain=1 / math.sqrt(2))
@@ -724,7 +695,8 @@ class MultiheadAttention(nn.Module):
             before_softmax: bool = False,
             need_head_weights: bool = False,
     ) -> Tuple[Tensor, Optional[Tensor]]:
-        """Input shape: Time x Batch x Channel
+        """
+        Input shape: Time x Batch x Channel
 
         Args:
             key_padding_mask (ByteTensor, optional): mask to exclude
@@ -771,8 +743,7 @@ class MultiheadAttention(nn.Module):
         assert k is not None
         assert k.size(1) == src_len
 
-        # This is part of a workaround to get around fork/join parallelism
-        # not supporting Optional types.
+        # This is part of a workaround to get around fork/join parallelism not supporting Optional types.
         if key_padding_mask is not None and key_padding_mask.dim() == 0:
             key_padding_mask = None
 
@@ -780,7 +751,6 @@ class MultiheadAttention(nn.Module):
             assert key_padding_mask.size(0) == bsz
             assert key_padding_mask.size(1) == src_len
         attn_weights = torch.bmm(q, k.transpose(1, 2))
-        attn_weights = self.apply_sparse_mask(attn_weights, tgt_len, src_len, bsz)
 
         assert list(attn_weights.size()) == [bsz * self.num_heads, tgt_len, src_len]
 
@@ -818,13 +788,9 @@ class MultiheadAttention(nn.Module):
         if need_weights:
             attn_weights = attn_weights_float.view(bsz, self.num_heads, tgt_len, src_len).transpose(1, 0)
             if not need_head_weights:
-                # average attention weights over heads
-                attn_weights = attn_weights.mean(dim=0)
+                attn_weights = attn_weights.mean(dim=0) # average attention weights over heads
 
         return attn, attn_weights
-
-    def apply_sparse_mask(self, attn_weights, tgt_len: int, src_len: int, bsz: int):
-        return attn_weights
 
     def upgrade_state_dict_named(self, state_dict, name):
         prefix = name + "." if name != "" else ""
