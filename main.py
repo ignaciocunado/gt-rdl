@@ -124,6 +124,7 @@ if __name__ == "__main__":
             channels=config.channels,
             out_channels=config.out_channels,
             dropouts=config.dropouts,
+            num_layers=config.num_layers,
             head=config.head,
             edge_featuers=config.edge_features,
             torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
