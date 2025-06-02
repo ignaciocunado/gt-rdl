@@ -16,6 +16,19 @@ from src.utils import quant_noise, graphormer_softmax, concat_node_features_to_e
 
 
 class Graphormer(BaseModel):
+    """An implementation of the Graphormer model to work with RelBench datasets
+
+        Args:
+            data: the graph object
+            col_stats_dict: column statistics
+            channels: number of hidden dimensions
+            out_channels: output channels (1)
+            dropouts: dropout values
+            num_layers: number of Graphormer layers
+            head: prediction head to use
+            edge_features: whether to use edge features
+            torch_frame_model_kwargs: other args for torch frame
+    """
     def __init__(
             self,
             data: HeteroData,
@@ -25,7 +38,7 @@ class Graphormer(BaseModel):
             dropouts: list,
             num_layers: int = 2,
             head: str = 'None',
-            edge_featuers: bool = False,
+            edge_features: bool = False,
             torch_frame_model_kwargs: Dict[str, Any] = {},
     ):
         super().__init__(
@@ -35,7 +48,7 @@ class Graphormer(BaseModel):
             torch_frame_model_kwargs=torch_frame_model_kwargs,
         )
 
-        self.edge_features = edge_featuers
+        self.edge_features = edge_features
         multi_hop_max_dist = 5
         embedding_dim = channels
         num_attention_heads = 8
@@ -115,18 +128,24 @@ class Graphormer(BaseModel):
                 raise NotImplementedError
 
     def reset_output_layer_parameters(self):
+        """
+        Resets parameters
+        """
         self.lm_output_learned_bias = nn.Parameter(torch.zeros(1))
         if self.embed_out is not None:
             self.embed_out.reset_parameters()
 
-    def upgrade_state_dict_named(self, state_dict, name):
-        if not self.load_softmax:
-            for k in list(state_dict.keys()):
-                if "embed_out.weight" in k or "lm_output_learned_bias" in k:
-                    del state_dict[k]
-        return state_dict
-
     def post_forward(self, x_dict: Dict[str, Tensor], batch: HeteroData, entity_table: NodeType, seed_time: Tensor):
+        """Overrides the post_forward method of the base class.
+        Args:
+            x_dict: encoded features
+            batch: current batch
+            entity_table: type of node
+            seed_time: seed time
+
+        Returns:
+            Prediction
+        """
         if self.edge_features:
             batch, x_dict = concat_node_features_to_edge(batch, x_dict)
 
@@ -147,12 +166,28 @@ class Graphormer(BaseModel):
         return self.embed_out(x_dict[entity_table][: seed_time.size(0)])
 
     def concat_x_dict(self, batch: HeteroData, x_dict: Dict[str, Tensor]) -> HeteroData:
+        """Concatenates the per-type encoded node features into a single tensor
+        Args:
+            batch: the current batch
+            x_dict: encoded node features per node type
+
+        Returns:
+            The modified batch
+        """
         device = x_dict[next(iter(x_dict))].device
         batch.x = torch.cat([x_dict[node_type] for node_type in batch.node_types], dim=0).to(device)
         batch.x = batch.x.unsqueeze(0)
         return batch
 
     def rebuild_x_dict(self, x, x_dict):
+        """Rebuilds x_dict from the single tensor, does the opposite of concat_x_dict.
+        Args:
+            x: tensor storing the result of the forward pass
+            x_dict: old encoded node features
+
+        Returns:
+            Updated x_dict
+        """
         x = x[0]
         index = 0
         for type in x_dict:
@@ -163,7 +198,7 @@ class Graphormer(BaseModel):
 
 def init_graphormer_params(module):
     """
-    Initialize the weights specific to the Graphormer Model.
+    Initialize the weights specific to the Graphormer Model. https://github.com/microsoft/Graphormer
     """
     def normal_(data):
         # with FSDP, module params will be on CUDA, so we cast them back to CPU so that the RNG is consistent with and without FSDP
@@ -184,6 +219,7 @@ def init_graphormer_params(module):
 
 
 class GraphormerGraphEncoder(nn.Module):
+    """Graphormer logic from https://github.com/microsoft/Graphormer with small tweaks"""
     def __init__(
             self,
             node_types: List[str],
@@ -354,7 +390,7 @@ class GraphormerGraphEncoder(nn.Module):
 
 class GraphNodeFeature(nn.Module):
     """
-    Compute node features for each node in the graph.
+    Compute some node features for each node in the graph. https://github.com/microsoft/Graphormer
     """
 
     def __init__(self, node_types, num_in_degree, num_out_degree, hidden_dim, n_layers):
@@ -386,7 +422,7 @@ class GraphNodeFeature(nn.Module):
 
 class GraphAttnBias(nn.Module):
     """
-    Compute attention bias for each head.
+    Compute attention bias for each head. https://github.com/microsoft/Graphormer
     """
 
     def __init__(
@@ -483,6 +519,7 @@ class GraphAttnBias(nn.Module):
         return graph_attn_bias
 
 class GraphormerGraphEncoderLayer(nn.Module):
+    """Encoder layer block. https://github.com/microsoft/Graphormer"""
     def __init__(
             self,
             embedding_dim: int = 768,
@@ -576,7 +613,7 @@ class GraphormerGraphEncoderLayer(nn.Module):
 
 class LayerDropModuleList(nn.ModuleList):
     """
-    A LayerDrop implementation based on :class:`torch.nn.ModuleList`.
+    A LayerDrop implementation based on :class:`torch.nn.ModuleList`. https://github.com/microsoft/Graphormer
 
     We refresh the choice of which layers to drop every time we iterate
     over the LayerDropModuleList instance. During evaluation we always
@@ -617,7 +654,7 @@ def init_params(module, n_layers):
 
 class MultiheadAttention(nn.Module):
     """
-    Multi-headed attention.
+    Multi-headed attention from https://github.com/microsoft/Graphormer.
 
     See "Attention Is All You Need" for more details.
     """
@@ -824,6 +861,7 @@ class MultiheadAttention(nn.Module):
             state_dict[key] = value
 
 class Dropout(nn.Module):
+    """Custom dropout implementation from https://github.com/microsoft/Graphormer"""
     def __init__(self, p, module_name=None):
         super().__init__()
         self.p = p

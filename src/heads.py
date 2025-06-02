@@ -4,8 +4,7 @@ from src.modules import MLP
 
 
 class HeteroGNNNodeHead(nn.Module):
-    """
-    Head of Hetero GNN, node prediction
+    """Head of Hetero GNN, node prediction
     Auto-adaptive to both homogeneous and heterogeneous data.
     """
     def __init__(self, dim_in, dim_out):
@@ -17,8 +16,7 @@ class HeteroGNNNodeHead(nn.Module):
         return self.layer_post_mp(batch)
 
 class HeteroGNNNodeRegressionHead(nn.Module):
-    """
-    Head of Hetero GNN, node prediction
+    """Head of Hetero GNN, node regression
     Auto-adaptive to both homogeneous and heterogeneous data.
     """
     def __init__(self, dim_in, dim_out):

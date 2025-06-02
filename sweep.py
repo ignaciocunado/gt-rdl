@@ -1,5 +1,3 @@
-import yaml
-
 import wandb
 import os
 
@@ -16,12 +14,15 @@ from src.train import train
 from src.utils import analyze_multi_edges
 
 from torch.optim import Adam, AdamW
-from torch.nn import L1Loss, BCELoss, BCEWithLogitsLoss
+from torch.nn import L1Loss, BCEWithLogitsLoss
 import logging
 
 from relbench.base import TaskType
 
 def outside_train():
+    """
+    Initialises a WandB run and train a model.
+    """
     with wandb.init() as run:
         # Override default configuration
         config = CustomConfig(

@@ -305,12 +305,11 @@ class RelBenchDataLoader:
         return self.loader_dict[split]
 
     def _compute_and_add_ports(self, graph):
-        """
-        Implements port numbering for the graph
+        """Implements port numbering for the graph
         Args:
-            graph:
+            graph: the graph to add port numbering to
 
-        Returns:
+        Returns: the modified graph
 
         """
         for edge_type in graph.edge_types:
@@ -324,6 +323,12 @@ class RelBenchDataLoader:
         return graph
 
     def __add_ports_to_edge_features(self, graph, edge_type, ports):
+        """Utils function for port numbering
+        Args:
+            graph: the graph
+            edge_type: the type of edge to add ports to
+            ports: the ports to add
+        """
         if hasattr(graph[edge_type], 'edge_attr') and graph[edge_type].edge_attr is not None:
             base_feat = graph[edge_type].edge_attr
         else:

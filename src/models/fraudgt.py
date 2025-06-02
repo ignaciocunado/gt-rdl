@@ -17,7 +17,19 @@ from src.utils import concat_node_features_to_edge
 
 
 class FraudGT(BaseModel):
-
+    """ An implementation of the FraudGT model to work with RelBench datasets
+        Args:
+            data: the graph
+            col_stats_dict: DB column statistics
+            channels: number of hidden dimensions
+            out_channels: number of out dimensions (1)
+            dropouts: local, global and attention dropouts
+            num_layers: number of layers
+            num_layers_pre_gt: number of fully connected MLP layers to use before the transformer layers
+            head: prediction head
+            edge_features: whether to use edge features
+            torch_frame_model_kwargs: other args for torch frame
+    """
     def __init__(
             self,
             data: HeteroData,
@@ -93,6 +105,16 @@ class FraudGT(BaseModel):
             raise ValueError(f'Attention head {head} not supported.')
 
     def post_forward(self, x_dict: Dict[str, Tensor], batch: HeteroData, entity_table: NodeType, seed_time: Tensor):
+        """Overrides the post_forward method of the base class.
+        Args:
+            x_dict: encoded features
+            batch: current batch
+            entity_table: type of node
+            seed_time: seed time
+
+        Returns:
+            Prediction
+        """
         x_dict = {
             node_type: self.input_drop(x_dict[node_type]) for node_type in x_dict
         }
@@ -114,7 +136,7 @@ class FraudGT(BaseModel):
 
 class FraudGTLayer(nn.Module):
     """
-    FraudGT layer
+    FraudGT layer from https://github.com/junhongmit/FraudGT
     """
     def __init__(self, dim_in, dim_edge_in, dim_h, dim_out, metadata, local_gnn_type, global_model_type, index, dropouts, num_heads=1,
                  layer_norm=False, batch_norm=False, return_attention=False, **kwargs):
@@ -227,10 +249,19 @@ class FraudGTLayer(nn.Module):
 
 
     def reset_parameters(self):
+        """Resets the parameters"""
         zeros(self.attn_bi)
 
 
     def forward(self, batch, x_dict):
+        """Forward through the transformer layer
+        Args:
+            batch: the current batch
+            x_dict: encoded node features
+
+        Returns:
+            Forward pass
+        """
         has_edge_attr = False
         h_dict = x_dict.copy()
 

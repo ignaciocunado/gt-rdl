@@ -5,6 +5,9 @@ import torch.nn.functional as F
 
 
 class MLP(nn.Module):
+    """
+    MLP Wrapper class from https://github.com/junhongmit/FraudGT
+    """
     def __init__(self, dim_in, dim_out, bias=True, dim_inner=None, num_layers=2, final_act = False, **kwargs):
         '''
         Note: MLP works for 0 layers
@@ -25,7 +28,7 @@ class MLP(nn.Module):
 
 class GeneralMultiLayer(nn.Module):
     """
-    General wrapper for stack of layers
+    General wrapper for stack of layers from https://github.com/junhongmit/FraudGT
     """
     def __init__(self, num_layers, dim_in, dim_out, dim_inner=None, final_act=True, **kwargs):
         super(GeneralMultiLayer, self).__init__()
@@ -43,7 +46,9 @@ class GeneralMultiLayer(nn.Module):
         return batch
 
 class GeneralLayer(nn.Module):
-    """General wrapper for layers"""
+    """
+    General wrapper for layers from https://github.com/junhongmit/FraudGT
+    """
     def __init__(self, dim_in, dim_out, has_act=True, has_l2norm=False, **kwargs):
         super(GeneralLayer, self).__init__()
         self.has_l2norm = has_l2norm
@@ -71,6 +76,9 @@ class GeneralLayer(nn.Module):
 
 
 class CustomLinear(nn.Module):
+    """
+    A custom implementation of nn.Linear from https://github.com/junhongmit/FraudGT
+    """
     def __init__(self, dim_in, dim_out, bias=False, **kwargs):
         super(CustomLinear, self).__init__()
         self.model = nn.Linear(dim_in, dim_out, bias=bias)
