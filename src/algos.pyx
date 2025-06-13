@@ -1,4 +1,4 @@
-# Copyright (c) Microsoft Corporation.
+# Copyright (c) Microsoft Corporation. Adapted from https://github.com/microsoft/Graphormer
 # Licensed under the MIT License.
 
 import cython

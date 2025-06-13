@@ -1,22 +1,19 @@
 import os
-os.environ['XDG_CACHE_HOME'] = '/tudelft.net/staff-umbrella/ScalableGraphLearning/cagri/data'
+os.environ['XDG_CACHE_HOME'] = '/tudelft.net/staff-umbrella/CSE3000GLTD/ignacio/relbench-ignacio/data'
 
 root_dir = os.path.join(os.environ['XDG_CACHE_HOME'], 'relbench')
 data_name = 'f1'
 task = 'u'
 
 import torch
-import numpy as np
 
 from relbench.datasets import get_dataset
 from relbench.tasks import get_task
 
 from relbench.modeling.utils import get_stype_proposal
-from typing import List, Optional, Any, Dict
+from typing import List, Optional
 from sentence_transformers import SentenceTransformer
-from torch import Tensor
 from torch_frame.config.text_embedder import TextEmbedderConfig
-from relbench.modeling.graph import make_pkey_fkey_graph
 from relbench.modeling.graph import get_node_train_table_input, make_pkey_fkey_graph
 from torch_geometric.loader import NeighborLoader
 
@@ -24,8 +21,7 @@ from torch_geometric.loader import NeighborLoader
 from torch import Tensor
 
 
-from relbench.modeling.nn import HeteroEncoder, HeteroTemporalEncoder
-from model import HeteroGraphGIN
+from models import HeteroGraphGIN
 
 # Some book keeping
 from torch_geometric.seed import seed_everything

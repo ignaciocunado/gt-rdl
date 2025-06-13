@@ -21,7 +21,10 @@ from . import algos
 
 
 def logger_setup(log_dir: str = "logs"):
-    # Setup logging
+    """Sets up logging for the project.
+    Args:
+        log_dir: the directory to save logs to. Defaults to "logs".
+    """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
@@ -88,6 +91,14 @@ def analyze_multi_edges(data: HeteroData) -> List[EdgeType]:
 
 
 def concat_node_features_to_edge(batch, x_dict):
+    """Concatenates source and destination node features and adds
+    them as edge features to the edge connecting those nodes
+    Args:
+        batch: the batch to process
+        x_dict: the encoded features
+
+    Returns: the new batch
+    """
     for edge_type in batch.edge_types:
         src, rel, dst = edge_type
         edge_index = batch[edge_type].edge_index
@@ -103,6 +114,9 @@ def concat_node_features_to_edge(batch, x_dict):
 
 
 def graphormer_softmax(x, dim: int, onnx_trace: bool = False):
+    """
+    Graphormer softmax function from https://github.com/microsoft/Graphormer.
+    """
     if onnx_trace:
         return F.softmax(x.float(), dim=dim)
     else:
@@ -110,7 +124,7 @@ def graphormer_softmax(x, dim: int, onnx_trace: bool = False):
 
 
 def quant_noise(module, p, block_size):
-    """
+    """From https://github.com/microsoft/Graphormer
     Wraps modules and applies quantization noise to the weights for
     subsequent quantization with Iterative Product Quantization as
     described in "Training with Quantization Noise for Extreme Model Compression"
@@ -216,6 +230,9 @@ def safe_hasattr(obj, k):
 
 @torch.jit.script
 def convert_to_single_emb(x, offset: int = 512):
+    """
+    Convert to embedding utils function from https://github.com/microsoft/Graphormer
+    """
     feature_num = x.size(1) if len(x.size()) > 1 else 1
     feature_offset = 1 + torch.arange(0, feature_num * offset, offset, dtype=torch.long)
     x = x + feature_offset
@@ -224,6 +241,13 @@ def convert_to_single_emb(x, offset: int = 512):
 
 @torch.no_grad()
 def add_centrality_encoding_info(item, device):
+    """Adds centrality information to the graph.
+    Args:
+        item: the graph item
+        device: the device to send tensors to
+
+    Returns: the modified graph
+    """
     for ntype in item.node_types:
         num_nodes = item[ntype].num_nodes
         in_deg = torch.zeros(num_nodes, dtype=torch.long, device=device)
@@ -271,6 +295,12 @@ def add_centrality_encoding_info(item, device):
 
 @torch.no_grad()
 def preprocess_batch(batch):
+    """Preprocesses a batch to add the necessary encoding information for Graphormer
+    Args:
+        batch: the batch to preprocess
+
+    Returns: the modified batch
+    """
     homo = batch.to_homogeneous(node_attrs=['in_degree', 'out_degree'], add_node_type=True, add_edge_type=True)
     edge_index, rel_ids = homo.edge_index, homo.edge_type
 

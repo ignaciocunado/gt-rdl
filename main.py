@@ -13,19 +13,22 @@ from src.config import CustomConfig
 from src.dataloader import RelBenchDataLoader
 from src.models.hetero_sage import HeteroGraphSage
 from src.models.fraudgt import FraudGT
-from src.models.globalhgt import GlobalHGT
 from src.models.graphormer import Graphormer
 
 from src.train import train
 from src.utils import analyze_multi_edges
 
 from torch.optim import Adam, AdamW
-from torch.nn import L1Loss, BCELoss, BCEWithLogitsLoss
+from torch.nn import L1Loss, BCEWithLogitsLoss
 import logging
 
 from relbench.base import TaskType
 
 def set_seed(seed):
+    """Sets the seed for all random number generators.
+    Args:
+        seed: The seed to use.
+    """
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -126,7 +129,7 @@ if __name__ == "__main__":
             dropouts=config.dropouts,
             num_layers=config.num_layers,
             head=config.head,
-            edge_featuers=config.edge_features,
+            edge_features=config.edge_features,
             torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
         ).to(config.device)
     elif args.model == 'local':
@@ -138,17 +141,6 @@ if __name__ == "__main__":
             dropouts=config.dropouts,
             num_layers=config.num_layers,
             num_layers_pre_gt=config.num_layers_pre_gt,
-            head=config.head,
-            edge_features=config.edge_features,
-            torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
-        ).to(config.device)
-    elif args.model == 'globalhgt':
-        model = GlobalHGT(
-            data=data_loader.graph,
-            col_stats_dict=data_loader.col_stats_dict,
-            channels=config.channels,
-            out_channels=config.out_channels,
-            num_layers=config.num_layers,
             head=config.head,
             edge_features=config.edge_features,
             torch_frame_model_kwargs={"channels": config.channels, "num_layers": config.num_layers},
