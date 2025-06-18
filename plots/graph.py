@@ -1,22 +1,14 @@
 import networkx as nx
 import matplotlib.pyplot as plt
 
-# 1) Create (or load) your graph
-G = nx.erdos_renyi_graph(n=120, p=0.4, seed=42)  # example: random graph with 80 nodes
+G = nx.erdos_renyi_graph(n=120, p=0.4, seed=42)
 
-# 2) Pick two "seed" nodes by whatever criterion you like.
-#    In a real paper these might be the highest‐centrality nodes or nodes from a k‐shell decomposition.
-seed_nodes = [0]  # for example purposes
+seed_nodes = [0,1]
 
-# 3) Find their immediate neighbors
 neighbors_of_seeds = set()
 for s in seed_nodes:
     neighbors_of_seeds.update(G.neighbors(s))
 
-# 4) Assign each node a color based on its status:
-#      - seed nodes  → dark red
-#      - neighbors   → light red/pink
-#      - everyone else → gray
 node_colors = []
 for n in G.nodes():
     if n in seed_nodes:
@@ -26,18 +18,16 @@ for n in G.nodes():
     else:
         node_colors.append('#000000')
 
-# 5) Run a force‐directed layout so that the graph “spreads out” nicely.
-pos = nx.kamada_kawai_layout(G) # Fruchterman‐Reingold (spring) layout
+pos = nx.kamada_kawai_layout(G)
 
-# 6) Draw edges first, then nodes on top
 fig, ax = plt.subplots(1, 2, figsize=(12, 6))
 ax = ax.reshape((-1))
 ax[0].axis('off')
 ax[1].axis('off')
 
 nx.draw_networkx_edges(G, pos=pos,
-                       edge_color='#000000',    # very light gray edges
-                       alpha=0.5,               # faint lines so they don’t distract
+                       edge_color='#000000',
+                       alpha=0.5,
                        width=1.0,
                        ax=ax[0])
 
@@ -56,8 +46,8 @@ for n in G.nodes():
         node_colors.append('#f28b82')
 
 nx.draw_networkx_edges(G, pos=pos,
-                       edge_color='#999999',    # very light gray edges
-                       alpha=0.3,               # faint lines so they don’t distract
+                       edge_color='#999999',
+                       alpha=0.3,
                        width=1.0,
                        ax=ax[1])
 
