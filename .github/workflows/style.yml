@@ -2,9 +2,9 @@ name: Code Style
 
 on:
   workflow_dispatch:
-#  push:
-#    branches:
-#      - develop
+ push:
+   branches:
+     - develop
 
 jobs:
   build:
