@@ -1,0 +1,113 @@
+method: bayes
+metric:
+  goal: maximize
+  name: best_test_metric
+parameters:
+  aggr:
+    value: sum
+  head:
+    value: HeteroGNNNodeHead
+  batch_size:
+    distribution: categorical
+    values:
+      - 16
+      - 32
+      - 64
+      - 128
+  channels:
+    distribution: categorical
+    values:
+      - 32
+      - 64
+      - 128
+      - 256
+  early_stopping:
+    value: true
+  ego_ids:
+    value: false
+  epochs:
+    distribution: int_uniform
+    max: 15
+    min: 5
+  evaluation_freq:
+    value: 1
+  learning_rate:
+    distribution: categorical
+    values:
+      - 0.001
+      - 0.002
+      - 0.003
+      - 0.004
+      - 0.005
+      - 0.007
+      - 0.008
+      - 0.01
+      - 0.02
+      - 0.03
+      - 0.04
+      - 0.05
+  max_steps_per_epoch:
+    distribution: categorical
+    values:
+      - 1000
+      - 1500
+      - 2000
+      - 2500
+      - 3000
+      - 3500
+      - 4000
+  norm:
+    value: batch_norm
+  num_layers:
+    distribution: int_uniform
+    max: 3
+    min: 1
+  num_layers_pre_gt:
+    value: 0
+  patience:
+    distribution: int_uniform
+    max: 5
+    min: 3
+  num_neighbors:
+    distribution: int_uniform
+    max: 200
+    min: 25
+  port_numbering:
+    value: false # Does not work as of now
+  reverse_mp:
+    value: true
+  local_dropout:
+    distribution: categorical
+    values:
+      - 0.0
+      - 0.1
+      - 0.2
+      - 0.3
+      - 0.4
+      - 0.5
+  global_dropout:
+    distribution: categorical
+    values:
+      - 0.0
+      - 0.1
+      - 0.2
+      - 0.3
+      - 0.4
+      - 0.5
+  attention_dropout:
+    distribution: categorical
+    values:
+      - 0.0
+      - 0.1
+      - 0.2
+      - 0.3
+      - 0.4
+      - 0.5
+  optimiser:
+    distribution: categorical
+    values:
+      - adam
+      - adamW
+  edge_features:
+    value: true
+program: sweep.py

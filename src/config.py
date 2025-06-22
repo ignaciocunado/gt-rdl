@@ -64,19 +64,28 @@ class CustomConfig:
     # Model Configuration
     channels: int = 32
     num_layers: int = 2
+    num_layers_pre_gt: int = 0
     out_channels: int = 1
     num_neighbors: List[int] = field(default_factory=lambda: [32, 32])
     temporal_strategy: str = "uniform"
     aggr: str = "sum"
     norm: str = "batch_norm"
+    reverse_mp: bool = True
+    port_numbering: bool = True
+    dropouts: list = field(default_factory=lambda: [0.0, 0.0, 0.0])
+    head: str = 'HeteroGNNNodeHead'
+    edge_features: bool = False
     
     # Training Configuration
     learning_rate: float = 0.005
     epochs: int = 10
+    optimiser: str = "Adam"
     max_steps_per_epoch: int = 2000
     batch_size: int = 128
-    num_workers: int = 2
+    num_workers: int = 6
     device: torch.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    ego_ids: bool = True
+    save_artifacts: bool = True
     
     # Model Selection
     higher_is_better: bool = True
@@ -137,17 +146,24 @@ class CustomConfig:
         config_str += "\nModel Configuration:\n"
         config_str += f"Channels: {self.channels}\n"
         config_str += f"Number of Layers: {self.num_layers}\n"
+        config_str += f"Number of Layers Pre-GT: {self.num_layers_pre_gt}\n"
         config_str += f"Output Channels: {self.out_channels}\n"
         config_str += f"Aggregation: {self.aggr}\n"
         config_str += f"Normalization: {self.norm}\n"
+        config_str += f"Reverse Message Passing: {self.reverse_mp}\n"
+        config_str += f"Port Numbering: {self.port_numbering}\n"
+        config_str += f"Dropouts: {self.dropouts}\n"
+        config_str += f"Head: {self.head}\n"
         
         # Training Configuration
         config_str += "\nTraining Configuration:\n"
         config_str += f"Learning Rate: {self.learning_rate}\n"
         config_str += f"Epochs: {self.epochs}\n"
+        config_str += f"Optimiser: {self.optimiser}\n"
         config_str += f"Batch Size: {self.batch_size}\n"
         config_str += f"Number of Workers: {self.num_workers}\n"
         config_str += f"Device: {self.device}\n"
+        config_str += f"Ego IDs: {self.ego_ids}\n"
         
         # Model Selection
         config_str += "\nModel Selection:\n"

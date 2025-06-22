@@ -1,18 +1,16 @@
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Tuple
 import torch
 import copy
-import math
 from tqdm import tqdm
 from torch.optim import Optimizer
 from torch.nn import Module
 from torch_geometric.loader import NeighborLoader
 import numpy as np
-from dataclasses import dataclass
 from .config import CustomConfig
 import logging
 from relbench.base import TaskType
 import os
-from datetime import datetime
+import wandb
 
 
 
@@ -46,7 +44,7 @@ def train_epoch(
         optimizer.zero_grad()
 
         pred = model(
-            batch, 
+            batch,
             task.entity_table
         )
         pred = pred.view(-1) if pred.size(1) == 1 else pred
@@ -119,7 +117,7 @@ def train(
         loss_fn: Loss function
         task: RelBench task
         config: Training configuration
-        
+
     Returns:
         Tuple containing:
             - Dictionary of best metrics
@@ -132,8 +130,9 @@ def train(
     
     for epoch in range(1, config.epochs + 1):
         # Training phase
-        train_loss = train_epoch(loaders['train'], model, optimizer, loss_fn, task, config)        
+        train_loss = train_epoch(loaders['train'], model, optimizer, loss_fn, task, config)
 
+        wandb.log({"epoch": epoch, "train_loss": train_loss})
         # Perform validation based on the evaluation frequency setting
         if epoch % config.evaluation_freq == 0 or epoch == 1 or epoch == config.epochs:
             # Validation phase
@@ -142,9 +141,16 @@ def train(
 
             val_metrics = task.evaluate(val_pred, task.get_table("val"))
             test_metrics = task.evaluate(test_pred)
+
             # Logging
             logging.info(f"Epoch: {epoch:02d}, Train loss: {train_loss:.4f}, Val metrics: {val_metrics}, Test metrics: {test_metrics}")
-            
+            wandb.log({
+                "epoch": epoch,
+                "train_loss": train_loss,
+                "val_metrics": val_metrics,
+                "test_metrics": test_metrics
+            })
+
             # Model selection
             current_metric = val_metrics[config.tune_metric]
             improved = (config.higher_is_better and current_metric > best_val_metric) or \
@@ -152,24 +158,34 @@ def train(
             
             if improved:
                 best_val_metric = current_metric
+                best_test_metric = test_metrics[config.tune_metric]
+                wandb.log({
+                    "epoch": epoch,
+                    "best_val_metric": best_val_metric,
+                    "best_test_metric": best_test_metric,
+                })
                 state_dict = copy.deepcopy(model.state_dict())
                 best_metrics = val_metrics
                 no_improve_count = 0
-            
-                # Save checkpoint in the run-specific checkpoint directory
-                # Create a unique filename with metric value
-                metric_value = f"{current_metric:.4f}".replace(".", "-")
-                checkpoint_filename = f"epoch_{epoch:03d}_{config.tune_metric}_{metric_value}.pt"
-                checkpoint_path = os.path.join(config.checkpoint_dir, checkpoint_filename)
+
                 
                 # Save the model with comprehensive metadata
-                torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': state_dict,
-                    'optimizer_state_dict': optimizer.state_dict(),
-                }, checkpoint_path)
-                
-                logging.info(f"Saved model checkpoint to {checkpoint_path}")
+                if config.save_artifacts:
+                    # Save checkpoint in the run-specific checkpoint directory
+                    # Create a unique filename with metric value
+                    metric_value = f"{current_metric:.4f}".replace(".", "-")
+                    checkpoint_filename = f"epoch_{epoch:03d}_{config.tune_metric}_{metric_value}.pt"
+                    checkpoint_path = os.path.join(config.checkpoint_dir, checkpoint_filename)
+
+                    torch.save({
+                        'epoch': epoch,
+                        'model_state_dict': state_dict,
+                        'optimizer_state_dict': optimizer.state_dict(),
+                    }, checkpoint_path)
+                    artifact = wandb.Artifact('model_checkpoint', type='model')
+                    artifact.add_file(checkpoint_path)
+                    wandb.log_artifact(artifact)
+                    logging.info(f"Saved model checkpoint to {checkpoint_path}")
 
             else:
                 no_improve_count += 1
@@ -191,5 +207,6 @@ def train(
     test_metrics = task.evaluate(test_pred)
     logging.info(f"Best validation metrics: {best_metrics}")
     logging.info(f"Test metrics: {test_metrics}")
-    
+    wandb.finish()
+
     return best_metrics, model

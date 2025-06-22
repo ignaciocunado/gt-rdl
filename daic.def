@@ -1,0 +1,32 @@
+Bootstrap: docker
+From: condaforge/miniforge3:latest
+
+%files
+    env.yml /env.yml
+    requirements.txt /requirements.txt
+
+%post
+
+    # Install optional packages and programs
+    # Need DEBIAN_FRONTEND=noninteractive to not get stuck during build
+    # Then clean up to keep the container small
+
+    apt-get update && \
+        DEBIAN_FRONTEND=noninteractive TZ=Europe/Amsterdam \
+        apt-get install -y --no-install-recommends libopenmpi-dev curl wget vim watch procps ncdu tree && \
+        apt-get clean && rm -rf /var/lib/apt/lists/*
+
+    # Create a new Conda environment with JupyterLab
+    mamba env create --quiet -y --file /env.yml
+
+    mamba install -n relbench-env -y pytorch=2.2.2 torchvision=0.17.2 torchaudio=2.2.2 pytorch-cuda=11.8 pyg -c pytorch -c nvidia -c pyg
+    mamba run -n relbench-env pip install --no-cache-dir -r requirements.txt
+    mamba run -n relbench-env pip install --no-cache-dir pytorch-frame sentence_transformers relbench
+
+    # Clean up
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+    mamba clean --all -y
+
+    # Now add the script to activate the Conda environment
+    echo '. "/opt/conda/etc/profile.d/conda.sh"' >> $APPTAINER_ENVIRONMENT
+    echo 'conda activate relbench-env' >> $APPTAINER_ENVIRONMENT

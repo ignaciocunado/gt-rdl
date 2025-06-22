@@ -1,0 +1,13 @@
+# Directories
+wandb/
+data/
+runs/
+venv/
+.idea/
+__pycache__/
+.ipynb_checkpoints/
+*.tmp/
+
+.env
+.DS_Store
+*.db
